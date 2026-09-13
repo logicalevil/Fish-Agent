@@ -196,6 +196,43 @@ AgentListener listener = new AgentListener() {
 AgentResult result = agent.run("帮我查一下东京的天气", listener);
 ```
 
+### 组合多个监听器
+
+需要同时做多件事时（如「控制台打印 + 审计日志 + 埋点统计」），不必把逻辑全塞进一个实现里——用 `CompositeAgentListener` 把任意多个 `AgentListener` 合成一个，事件会按传入顺序依次转发：
+
+```java
+import com.zheng.fishagent.agent.CompositeAgentListener;
+
+// 监听器 1：流式打印到控制台
+AgentListener consoleListener = new AgentListener() {
+    @Override public void onToken(String token) {
+        System.out.print(token);
+    }
+};
+
+// 监听器 2：记录工具调用的审计日志
+AgentListener auditListener = new AgentListener() {
+    @Override public void onToolCall(ToolCall call) {
+        auditLog.info("调用工具 {}，参数 {}", call.name(), call.arguments());
+    }
+    @Override public void onToolResult(ToolCall call, String result) {
+        auditLog.info("工具 {} 返回 {}", call.name(), result);
+    }
+};
+
+// 合成一个：两个监听器都会收到全部事件
+AgentListener listeners = new CompositeAgentListener(consoleListener, auditListener);
+
+AgentResult result = agent.run("帮我查一下东京的天气", listeners);
+```
+
+要点：
+
+- **按序转发**：先注册的先收到事件；传入的 `null` 元素会被忽略。
+- **可嵌套**：`CompositeAgentListener` 本身也是 `AgentListener`，可以再被组合，形成树状结构（如按业务分组）。
+- **异常不隔离**：任一监听器抛异常会中断本次转发并向上抛出，排在其后的监听器收不到该事件；需要「一个坏监听器不影响其他」时，请在各实现内部自行 `try/catch`。
+- **不可变**：构造时对传入集合做防御性拷贝，之后再修改原集合不影响已组合的实例。
+
 要单独使用底层模型流式接口时：
 
 ```java
@@ -274,7 +311,7 @@ src/main/java/com/zheng/fishagent/
 │   └── annotation/ @AgentTool / @ToolParam
 ├── memory/     ChatMemory / InMemory / MessageWindow / FileChatMemory
 ├── prompt/     ReActPrompt / ReActOutputParser / ReActStep
-├── agent/      Agent / ReActAgent / ToolCallMode / AgentListener / AgentResult
+├── agent/      Agent / ReActAgent / ToolCallMode / AgentListener / CompositeAgentListener / AgentResult
 └── example/    ConsoleChat / DemoTools / Calculator
 ```
 
