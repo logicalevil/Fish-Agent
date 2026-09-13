@@ -56,6 +56,9 @@ import java.util.regex.Pattern;
  * 本类是<b>有状态</b>的：会话记忆（{@link ChatMemory}）绑定在实例上，而 {@link #run} 会读写它。
  * 因此<b>同一个实例不应被多个线程并发调用</b>。需要并发时，请为每个会话创建独立的 Agent 实例，
  * 或由调用方自行加锁。框架内部不创建任何线程，也不做同步。
+ * <p>
+ * 状态还包括<b>工具集快照</b>：系统提示词在首次使用后即冻结（见 {@link #cachedSystemPrompt}），
+ * 因此所有工具须在首次 {@link #run} 之前注册完毕。
  */
 public final class ReActAgent implements Agent {
 
@@ -100,6 +103,15 @@ public final class ReActAgent implements Agent {
      * 提示词依赖「已注册的工具列表」，而工具可能在构建之后才注册，因此<b>延迟到首次使用时计算</b>，
      * 算一次后缓存。声明为 {@code volatile} 是为了让多个线程读到的是同一份已发布对象，
      * 避免撕裂；计算过程本身可能重复执行，但结果幂等，可接受。
+     * <p>
+     * <b>快照语义（重要）</b>：缓存一经写入<b>不再失效</b>，即系统提示词定格为「首次使用时的工具集」。
+     * 因此<b>所有工具必须在首次 {@link #run} 之前注册完毕</b>。此后新增的工具不会进入提示词：
+     * <ul>
+     *   <li>{@link ToolCallMode#REACT_TEXT}：提示词承载完整工具清单，新工具对模型<b>完全不可见</b>；</li>
+     *   <li>{@link ToolCallMode#NATIVE_TOOLS}：若首次计算时工具集为空，提示词会一直停留在
+     *       「没有可用工具」分支，模型可能忽略请求体 {@code tools} 字段中已下发的工具。</li>
+     * </ul>
+     * 若确需运行期变更工具集，应改为「版本化缓存」（按工具集的变更版本重算提示词），而非复用本缓存。
      */
     private volatile String cachedSystemPrompt;
 
