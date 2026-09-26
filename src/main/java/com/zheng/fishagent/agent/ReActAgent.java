@@ -98,6 +98,15 @@ public final class ReActAgent implements Agent {
     private final ToolCallMode mode;
 
     /**
+     * 链路追踪扩展点。默认 {@link Tracer#NOOP}，即不追踪、零开销。
+     * <p>
+     * 它只在固定的结构边界（{@code agent.run} / {@code model.call} / {@code tool.execute}）
+     * 上被调用；生成的 ID 通过 {@link Span#current()} 暴露给 {@link AgentListener}，
+     * 因此监听器无需任何传参即可读到本次 run 的 traceId。
+     */
+    private final Tracer tracer;
+
+    /**
      * 系统提示词缓存。
      * <p>
      * 提示词依赖「已注册的工具列表」，而工具可能在构建之后才注册，因此<b>延迟到首次使用时计算</b>，
@@ -129,6 +138,7 @@ public final class ReActAgent implements Agent {
         this.temperature = builder.temperature;
         this.streaming = builder.streaming;
         this.mode = builder.mode;
+        this.tracer = builder.tracer == null ? Tracer.NOOP : builder.tracer;
     }
 
     public static Builder builder() {
@@ -190,6 +200,9 @@ public final class ReActAgent implements Agent {
      * 执行一轮完整对话（内部可能包含多次模型调用），并返回本次运行的汇总结果。
      * <p>
      * 副作用：会向 {@link #memory} 写入用户输入、助手消息与工具结果。因此本方法<b>不是线程安全</b>的。
+     * <p>
+     * 本方法在 {@code agent.run} span 内执行；若配置了 {@link Tracer}，监听器回调中可通过
+     * {@link Span#current()} 读到本次运行的追踪标识。
      *
      * @param userInput 用户输入；为 null 或空白时不会写入记忆（此时相当于让模型接着现有上下文继续）
      * @param listener  过程事件回调；允许为 null，内部会替换为空实现
@@ -200,6 +213,21 @@ public final class ReActAgent implements Agent {
     public AgentResult run(String userInput, AgentListener listener) {
         // 空对象模式：调用方不必做 null 判断，循环里可以无脑回调
         AgentListener callback = listener == null ? AgentListener.NOOP : listener;
+        // 开启本次 run 的顶层 span（未启用追踪时为零开销的 NOOP）；
+        // finally 保证异常路径也会关闭，避免当前线程的环境上下文泄漏
+        Span runSpan = Spans.open(tracer, "agent.run");
+        try {
+            return doRun(userInput, callback);
+        } finally {
+            Spans.close(runSpan);
+        }
+    }
+
+    /**
+     * {@link #run(String, AgentListener)} 的实际执行体，被包在 {@code agent.run} span 之内。
+     * 拆成独立方法只是为了让「span 的开合」与「run 的逻辑」在源码里一眼可见。
+     */
+    private AgentResult doRun(String userInput, AgentListener callback) {
         callback.onStart(userInput);
         // 先落用户输入再进循环，保证构建请求时上下文是完整的
         if (userInput != null && !userInput.isBlank()) {
@@ -273,7 +301,7 @@ public final class ReActAgent implements Agent {
                                 + " 次，请停止重复调用，直接基于已有信息给出 Final Answer。";
                     } else {
                         // 工具内部异常已被 ToolRegistry 兜住并转成错误文本，不会中断循环
-                        result = tools.execute(normalized);
+                        result = executeTool(normalized);
                     }
                     callback.onToolResult(normalized, result);
                     // 工具结果的角色/包装形式由模式决定，见 observation()
@@ -303,16 +331,37 @@ public final class ReActAgent implements Agent {
      * 发起一次模型调用，按需选择同步或流式，并为不同模式挂上不同的流式监听器。
      */
     private ChatResponse invoke(AgentListener callback) {
-        ChatRequest request = buildRequest();
-        if (!streaming) {
-            return model.call(request);
+        Span span = Spans.open(tracer, "model.call");
+        try {
+            ChatRequest request = buildRequest();
+            if (!streaming) {
+                return model.call(request);
+            }
+            // 原生模式下正文即最终答案，可以原样转发；
+            // 文本模式下正文混杂着 Thought/Action，必须门控后才允许下发。
+            StreamListener streamListener = mode == ToolCallMode.NATIVE_TOOLS
+                    ? tokenForwarder(callback)
+                    : new FinalAnswerGate(callback);
+            return model.stream(request, streamListener);
+        } finally {
+            Spans.close(span);
         }
-        // 原生模式下正文即最终答案，可以原样转发；
-        // 文本模式下正文混杂着 Thought/Action，必须门控后才允许下发。
-        StreamListener streamListener = mode == ToolCallMode.NATIVE_TOOLS
-                ? tokenForwarder(callback)
-                : new FinalAnswerGate(callback);
-        return model.stream(request, streamListener);
+    }
+
+    /**
+     * 执行一次工具调用，并包在 {@code tool.execute} span 内，把工具名记为属性。
+     * <p>
+     * 与 {@link com.zheng.fishagent.tool.ToolRegistry#execute} 的唯一区别就是这层埋点，
+     * 因此单列出来，让 span 的边界正好落在「一次工具执行」上。
+     */
+    private String executeTool(ToolCall call) {
+        Span span = Spans.open(tracer, "tool.execute");
+        try {
+            span.attribute("tool", call.name());
+            return tools.execute(call);
+        } finally {
+            Spans.close(span);
+        }
     }
 
     /**
@@ -535,8 +584,9 @@ public final class ReActAgent implements Agent {
     /**
      * {@link ReActAgent} 的构建器。
      * <p>
-     * 所有字段都有安全默认值，最小可用配置是「只设置 model」。
-     * 默认采用 {@link ToolCallMode#NATIVE_TOOLS} + 流式输出。
+     * <b>必填项只有 {@link #model(ChatModel)}</b>，未设置时 {@link #build()} 会快速失败。
+     * 其余字段都有安全默认值：{@link ToolCallMode#NATIVE_TOOLS} 模式、流式输出、
+     * 不限轮数的工具集、进程内记忆与 {@link Tracer#NOOP} 追踪。
      */
     public static final class Builder {
 
@@ -550,6 +600,7 @@ public final class ReActAgent implements Agent {
         private Double temperature;
         private boolean streaming = true;
         private ToolCallMode mode = ToolCallMode.NATIVE_TOOLS;
+        private Tracer tracer = Tracer.NOOP;
 
         private Builder() {
         }
@@ -614,6 +665,17 @@ public final class ReActAgent implements Agent {
 
         public Builder mode(ToolCallMode mode) {
             this.mode = Objects.requireNonNull(mode, "mode 不能为空");
+            return this;
+        }
+
+        /**
+         * 链路追踪扩展点。缺省为 {@link Tracer#NOOP}（不追踪、零开销）。
+         * <p>
+         * 设置后，{@code run} / 模型调用 / 工具执行会自动生成 span，
+         * 监听器与业务代码可用 {@link Span#current()} 读取当前 ID。
+         */
+        public Builder tracer(Tracer tracer) {
+            this.tracer = tracer;
             return this;
         }
 

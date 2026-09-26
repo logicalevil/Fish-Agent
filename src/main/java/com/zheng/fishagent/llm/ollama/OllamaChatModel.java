@@ -74,6 +74,9 @@ public final class OllamaChatModel implements ChatModel {
         return model;
     }
 
+    /**
+     * 实际使用的服务地址（已去除末尾斜杠）。
+     */
     public String baseUrl() {
         return baseUrl;
     }
@@ -378,26 +381,45 @@ public final class OllamaChatModel implements ChatModel {
         private boolean sendToolName = true;
         private final Map<String, Object> defaultOptions = new LinkedHashMap<>();
 
+        /**
+         * Ollama 服务地址，默认 {@link #DEFAULT_BASE_URL}。末尾多余的 {@code /} 会被自动去除。
+         */
         public Builder baseUrl(String baseUrl) {
             this.baseUrl = baseUrl;
             return this;
         }
 
+        /**
+         * 必填项：模型名，例如 {@code qwen2.5:7b}。
+         */
         public Builder model(String model) {
             this.model = model;
             return this;
         }
 
+        /**
+         * 自定义 HTTP 客户端。缺省时框架自建一个（连接超时 10 秒、强制 HTTP/1.1）。
+         * <p>
+         * 需要统一代理、连接池或超时策略时在此注入。
+         */
         public Builder httpClient(HttpClient httpClient) {
             this.httpClient = httpClient;
             return this;
         }
 
+        /**
+         * 同步调用的超时时间，默认 5 分钟。流式调用不受此限制。
+         */
         public Builder requestTimeout(Duration requestTimeout) {
             this.requestTimeout = requestTimeout;
             return this;
         }
 
+        /**
+         * 是否在 {@code tool} 角色消息中附带 {@code tool_name} 字段，默认开启。
+         * <p>
+         * 仅在与要求该字段的特定 Ollama 版本配合时才需要调整。
+         */
         public Builder sendToolName(boolean sendToolName) {
             this.sendToolName = sendToolName;
             return this;
@@ -412,6 +434,9 @@ public final class OllamaChatModel implements ChatModel {
             return this;
         }
 
+        /**
+         * 批量设置默认采样参数，语义同 {@link #option(String, Object)}。
+         */
         public Builder options(Map<String, Object> options) {
             if (options != null) {
                 this.defaultOptions.putAll(options);
@@ -419,11 +444,19 @@ public final class OllamaChatModel implements ChatModel {
             return this;
         }
 
+        /**
+         * 设置默认采样温度，等价于 {@code option("temperature", temperature)}。
+         */
         public Builder temperature(double temperature) {
             this.defaultOptions.put("temperature", temperature);
             return this;
         }
 
+        /**
+         * 组装模型实例。
+         *
+         * @throws NullPointerException 未调用 {@link #model(String)} 时抛出
+         */
         public OllamaChatModel build() {
             return new OllamaChatModel(this);
         }

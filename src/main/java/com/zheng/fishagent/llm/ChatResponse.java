@@ -11,18 +11,30 @@ import com.zheng.fishagent.message.Message;
  */
 public record ChatResponse(Message message, TokenUsage usage, String finishReason) {
 
+    /**
+     * 缺省结束原因的便捷构造，等价于 {@code finishReason = "stop"}。
+     */
     public ChatResponse(Message message, TokenUsage usage) {
         this(message, usage, "stop");
     }
 
+    /**
+     * 以「零用量 + stop」构造一个仅含消息的响应。
+     */
     public static ChatResponse of(Message message) {
         return new ChatResponse(message, TokenUsage.EMPTY, "stop");
     }
 
+    /**
+     * 助手正文；{@code message} 为 {@code null} 时返回空串。
+     */
     public String text() {
         return message == null ? "" : message.content();
     }
 
+    /**
+     * 本次响应是否请求了至少一个工具调用。
+     */
     public boolean hasToolCalls() {
         return message != null && message.hasToolCalls();
     }

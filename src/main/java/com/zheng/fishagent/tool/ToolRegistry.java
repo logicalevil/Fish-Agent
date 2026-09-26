@@ -21,6 +21,12 @@ public final class ToolRegistry {
 
     private final Map<String, Tool> tools = new LinkedHashMap<>();
 
+    /**
+     * 注册一个工具。
+     * <p>
+     * {@code null} 被静默忽略；工具名重复时抛 {@link FishAgentException}（快速失败，
+     * 避免模型在重名工具间产生歧义）。
+     */
     public ToolRegistry register(Tool tool) {
         if (tool == null) {
             return this;
@@ -32,6 +38,9 @@ public final class ToolRegistry {
         return this;
     }
 
+    /**
+     * 批量注册工具，按数组顺序依次调用 {@link #register(Tool)}。
+     */
     public ToolRegistry register(Tool... tools) {
         for (Tool tool : tools) {
             register(tool);
@@ -73,10 +82,16 @@ public final class ToolRegistry {
         return this;
     }
 
+    /**
+     * 按名查找工具。
+     */
     public Optional<Tool> find(String name) {
         return Optional.ofNullable(tools.get(name));
     }
 
+    /**
+     * 是否存在指定名称的工具。
+     */
     public boolean contains(String name) {
         return tools.containsKey(name);
     }
@@ -88,14 +103,23 @@ public final class ToolRegistry {
         return List.copyOf(tools.values());
     }
 
+    /**
+     * 返回所有工具的对外描述，供模型选择工具时使用。
+     */
     public List<ToolSpec> specs() {
         return tools.values().stream().map(Tool::spec).toList();
     }
 
+    /**
+     * 是否尚未注册任何工具。为空时 Agent 退化为纯对话。
+     */
     public boolean isEmpty() {
         return tools.isEmpty();
     }
 
+    /**
+     * 已注册的工具数量。
+     */
     public int size() {
         return tools.size();
     }

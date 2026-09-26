@@ -11,6 +11,7 @@ import java.util.StringJoiner;
  */
 public final class ReActPrompt {
 
+    /** 未显式传入 {@code instructions} 时使用的默认行为准则。 */
     public static final String DEFAULT_INSTRUCTIONS = """
             你是一个严谨的智能助手。
             你可以使用工具来获取你无法直接知道的事实，不要凭记忆编造工具才能提供的信息。

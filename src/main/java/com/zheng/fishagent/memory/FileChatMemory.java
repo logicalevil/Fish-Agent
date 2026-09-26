@@ -32,10 +32,20 @@ public final class FileChatMemory implements ChatMemory {
         load();
     }
 
+    /**
+     * 使用默认目录（{@link #DEFAULT_DIR}）创建。
+     */
     public static FileChatMemory of(String sessionId) {
         return of(sessionId, DEFAULT_DIR);
     }
 
+    /**
+     * 在指定目录创建。会话标识中的非法文件名字符会被替换为 {@code _}；
+     * 构造时即读取已有文件，从而恢复历史。
+     *
+     * @param sessionId 会话标识；{@code null} 或空白时使用 {@code default}
+     * @param directory 存储目录，不存在时在首次写入时创建
+     */
     public static FileChatMemory of(String sessionId, Path directory) {
         String safeId = sessionId == null || sessionId.isBlank() ? "default" : sessionId.replaceAll("[^a-zA-Z0-9_.\\-]", "_");
         return new FileChatMemory(safeId, directory.resolve(safeId + ".jsonl"));
@@ -93,7 +103,7 @@ public final class FileChatMemory implements ChatMemory {
     }
 
     /**
-     * 清空文件内容与缓存。
+     * 清空文件内容与缓存。文件本身会被删除，下次 {@link #add(Message)} 时按需重建。
      */
     @Override
     public synchronized void clear() {

@@ -24,50 +24,89 @@ public final class Message {
         this.toolName = builder.toolName;
     }
 
+    /**
+     * 系统提示词消息。框架不会把系统提示词写入记忆，此工厂主要用于自定义场景。
+     */
     public static Message system(String content) {
         return builder(Role.SYSTEM).content(content).build();
     }
 
+    /**
+     * 用户消息。
+     */
     public static Message user(String content) {
         return builder(Role.USER).content(content).build();
     }
 
+    /**
+     * 不含工具调用的助手消息（通常即最终答案）。
+     */
     public static Message assistant(String content) {
         return builder(Role.ASSISTANT).content(content).build();
     }
 
+    /**
+     * 携带工具调用的助手消息。{@code content} 可为空串（部分模型只返回工具调用）。
+     */
     public static Message assistant(String content, List<ToolCall> toolCalls) {
         return builder(Role.ASSISTANT).content(content).toolCalls(toolCalls).build();
     }
 
+    /**
+     * 工具结果消息（原生模式使用）。
+     *
+     * @param toolName 产生该结果的工具名
+     * @param content  工具的返回值文本
+     */
     public static Message tool(String toolName, String content) {
         return builder(Role.TOOL).toolName(toolName).content(content).build();
     }
 
+    /**
+     * 以指定角色创建构建器。
+     */
     public static Builder builder(Role role) {
         return new Builder(role);
     }
 
+    /**
+     * 消息角色。
+     */
     public Role role() {
         return role;
     }
 
+    /**
+     * 正文；为 {@code null} 时规范化为空串。
+     */
     public String content() {
         return content;
     }
 
+    /**
+     * 本消息请求的工具调用；非助手消息恒为空列表。
+     */
     public List<ToolCall> toolCalls() {
         return toolCalls;
     }
 
+    /**
+     * 工具结果消息对应的工具名；仅 {@code TOOL} 角色非 {@code null}。
+     */
     public String toolName() {
         return toolName;
     }
 
+    /**
+     * 是否携带至少一个工具调用。
+     */
     public boolean hasToolCalls() {
         return !toolCalls.isEmpty();
     }
 
+    /**
+     * 正文空白且无工具调用。
+     */
     public boolean isBlank() {
         return content.isBlank() && toolCalls.isEmpty();
     }

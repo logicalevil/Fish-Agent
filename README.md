@@ -14,6 +14,7 @@ Fish-Agent 让你用几行代码把大模型变成能**调用工具、记住上�
 - **记忆系统**：内存记忆、滑动窗口裁剪、JSONL 文件持久化，可自由组合。
 - **流式输出**：SSE/NDJSON 逐 token 回调，文本模式下带「最终答案门控」，不会泄露中间推理。
 - **健壮性**：迭代轮数上限、重复调用判死循环、工具异常转为错误文本自愈、参数名容错。
+- **可观测**：`Tracer` / `Span` 扩展点，在 run、模型调用、工具执行三处自动埋点；默认零开销，可在监听器里直接读到 traceId。
 - **JPMS 友好**：`Automatic-Module-Name: com.zheng.fishagent`。
 
 ## 环境要求
@@ -242,6 +243,45 @@ model.stream(request, token -> System.out.print(token)); // StreamListener 是�
 
 ---
 
+## 可观测性（链路追踪）
+
+框架在三个结构边界自动埋点：一次 `run`、一次模型调用、一次工具执行。**默认零开销**——不配置时全部是空实现，不生成 ID、不压栈。
+
+```java
+import com.zheng.fishagent.agent.SimpleTracer;
+import com.zheng.fishagent.agent.Span;
+import com.zheng.fishagent.message.ToolCall;
+
+Agent agent = FishAgent.builder()
+        .ollama("qwen2.5:7b")
+        .tracer(SimpleTracer.create())      // 每次 run 一个新 traceId
+        .build();
+
+AgentListener listener = new AgentListener() {
+    @Override public void onToolCall(ToolCall call) {
+        // 无需传参，直接读当前 span
+        Span span = Span.current();
+        System.out.println("[" + span.traceId() + "] 调用工具 " + call.name());
+    }
+};
+
+agent.run("北京现在几点？", listener);
+```
+
+要点：
+
+- **三个 span 边界**：`agent.run` → `model.call` → `tool.execute`，层层嵌套；`tool.execute` 会自动带上 `tool` 属性。
+- **ID 层级**：一次逻辑请求内所有 span 共享 `traceId()`；子 span 的 `parentSpanId()` 指向父 span 的 `spanId()`；根 span 的 `parentSpanId()` 为 `null`。
+- **`Span.current()`**：框架内部不创建线程，`run` 与回调始终在同一线程上，因此回调里读到的必然是本次运行的 span。若你在回调中自行切换线程，需要把 span 作为值显式带过去。
+- **traceId 粒度**：`SimpleTracer.create()` 每次 run 新生成；`SimpleTracer.create("trace-abc")` 用固定值，让跨多次 run 的同一逻辑请求归入同一条链路（空白值会退化为随机生成）。
+- **自定义实现**：实现 `Tracer` 接口并注入即可接入日志或 OpenTelemetry。`Tracer` 只管按 `parent` 算 ID 并返回 span，**不要**自己维护「当前 span」——压栈出栈由框架统一管理。
+- **栈的清理**：栈空时线程本地变量会被移除，线程池复用时不会残留上一次的上下文。
+- **默认关闭**：不调用 `.tracer(...)` 时 `Tracer.NOOP` 生效，`Span.current()` 恒返回 `Span.NOOP`（`traceId()` / `spanId()` 为空串）。
+
+> 行为契约见 `openspec/specs/observability-tracing/spec.md`。
+
+---
+
 ## 结果与用量
 
 `AgentResult` 是一个 record，包含：
@@ -271,13 +311,33 @@ System.out.println("轮数=" + result.iterations() + "，tokens=" + result.usage
 import com.zheng.fishagent.llm.*;
 
 public class MyChatModel implements ChatModel {
-    @Override public ChatResponse chat(ChatRequest request) { /* ... */ }
-    @Override public ChatResponse stream(ChatRequest request, StreamListener listener) { /* ... */ }
-    @Override public String name() { return "my-model"; }
+
+    /** 同步（阻塞）调用。 */
+    @Override
+    public ChatResponse call(ChatRequest request) {
+        // 把 request.messages() / request.tools() 转成厂商格式，发请求，再转回 ChatResponse
+        return new ChatResponse(Message.assistant("回答"), TokenUsage.EMPTY, "stop");
+    }
+
+    /** 流式调用：逐段回调 onToken，返回聚合后的完整响应（含工具调用）。 */
+    @Override
+    public ChatResponse stream(ChatRequest request, StreamListener listener) {
+        ChatResponse response = call(request);
+        listener.onToken(response.text());
+        return response;
+    }
+
+    /** 模型标识，用于日志与元信息展示；不覆写则默认取类名。 */
+    @Override
+    public String modelName() {
+        return "my-model";
+    }
 }
 
 Agent agent = FishAgent.builder().model(new MyChatModel()).build();
 ```
+
+`ChatRequest` 是不可变对象，用 `ChatRequest.builder()` 构建；其中 `messages()` 已按「系统提示词 → 历史消息」排好序，`tools()` 在原生模式下携带结构化 Schema、在文本模式下为空。`ChatResponse` 是 record，字段为 `message` / `usage` / `finishReason`。
 
 ---
 
@@ -311,9 +371,35 @@ src/main/java/com/zheng/fishagent/
 │   └── annotation/ @AgentTool / @ToolParam
 ├── memory/     ChatMemory / InMemory / MessageWindow / FileChatMemory
 ├── prompt/     ReActPrompt / ReActOutputParser / ReActStep
-├── agent/      Agent / ReActAgent / ToolCallMode / AgentListener / CompositeAgentListener / AgentResult
+├── agent/      Agent / ReActAgent / ToolCallMode / AgentResult
+│               AgentListener / CompositeAgentListener
+│               Tracer / Span / Spans / SimpleTracer
 └── example/    ConsoleChat / DemoTools / Calculator
 ```
+
+## 规范与变更流程
+
+本项目的**行为契约**记录在 `openspec/` 下，而非仅存在于代码里：
+
+```
+openspec/
+├── project.md      项目定位、技术栈、约定
+├── specs/          已实现能力的正式规范（12 份，基线）
+└── changes/        进行中的变更提案
+    └── archive/    已归档的变更
+```
+
+规范用 Requirement + Scenario 描述「系统应该做什么」，每份对应一个能力（如 `agent-execution`、`tool-registry`、`conversation-memory`）。改动行为前先读对应规范，改完行为要同步更新规范。
+
+```powershell
+openspec list --specs                    # 查看现有能力规范
+openspec show agent-execution --type spec # 查看某份规范
+openspec new change <name>               # 新建变更提案
+openspec validate --all                  # 校验提案与规范
+openspec archive <name>                  # 完成后归档，规范并入 openspec/specs/
+```
+
+需要 OpenSpec CLI：`npm install -g @fission-ai/openspec`。
 
 ## 构建与发布
 

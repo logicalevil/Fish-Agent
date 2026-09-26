@@ -21,21 +21,36 @@ public final class MessageWindowChatMemory implements ChatMemory {
         this.maxMessages = Math.max(1, maxMessages);
     }
 
+    /**
+     * 以新生成的会话标识创建，底层为 {@link InMemoryChatMemory}。
+     */
     public static MessageWindowChatMemory of(int maxMessages) {
         return new MessageWindowChatMemory(new InMemoryChatMemory(), maxMessages);
     }
 
+    /**
+     * 以指定会话标识创建，底层为 {@link InMemoryChatMemory}。
+     */
     public static MessageWindowChatMemory of(String id, int maxMessages) {
         return new MessageWindowChatMemory(new InMemoryChatMemory(id), maxMessages);
     }
 
     /**
      * 在已有记忆之上套一层窗口裁剪。
+     * <p>
+     * 典型用法是叠加在 {@link FileChatMemory} 上，既保留完整落盘历史，
+     * 又限制进入模型的上下文长度：
+     * <pre>{@code
+     * ChatMemory memory = MessageWindowChatMemory.windowing(FileChatMemory.of("s1"), 20);
+     * }</pre>
      */
     public static MessageWindowChatMemory windowing(ChatMemory delegate, int maxMessages) {
         return new MessageWindowChatMemory(delegate, maxMessages);
     }
 
+    /**
+     * 窗口大小，即「除 SYSTEM 外」参与上下文的最近消息条数上限。
+     */
     public int maxMessages() {
         return maxMessages;
     }
