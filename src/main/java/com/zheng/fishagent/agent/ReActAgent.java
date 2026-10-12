@@ -7,6 +7,8 @@ import com.zheng.fishagent.llm.StreamListener;
 import com.zheng.fishagent.llm.TokenUsage;
 import com.zheng.fishagent.memory.ChatMemory;
 import com.zheng.fishagent.memory.InMemoryChatMemory;
+import com.zheng.fishagent.memory.LockedChatMemory;
+import com.zheng.fishagent.memory.lock.MemoryLock;
 import com.zheng.fishagent.message.Message;
 import com.zheng.fishagent.message.ToolCall;
 import com.zheng.fishagent.prompt.ReActOutputParser;
@@ -129,7 +131,11 @@ public final class ReActAgent implements Agent {
         this.model = Objects.requireNonNull(builder.model, "model 不能为空");
         // 以下三项均为可选，缺省时回退到安全默认值，避免调用方做空判断
         this.tools = builder.tools == null ? new ToolRegistry() : builder.tools;
-        this.memory = builder.memory == null ? new InMemoryChatMemory() : builder.memory;
+        // 记忆统一经锁装饰器访问：未配置锁时回退 MemoryLock.local()（等价于原先的 synchronized），
+        // 需要跨实例互斥时由调用方注入自定义实现。已是 LockedChatMemory 时不重复包裹
+        MemoryLock lock = builder.memoryLock == null ? MemoryLock.local() : builder.memoryLock;
+        this.memory = LockedChatMemory.wrap(
+                builder.memory == null ? new InMemoryChatMemory() : builder.memory, lock);
         this.instructions = builder.instructions;
         this.systemPromptOverride = builder.systemPromptOverride;
         // 轮数下限为 1：至少允许一次模型调用，否则 run 会直接空转退出
@@ -593,6 +599,7 @@ public final class ReActAgent implements Agent {
         private ChatModel model;
         private ToolRegistry tools;
         private ChatMemory memory;
+        private MemoryLock memoryLock = MemoryLock.local();
         private String instructions = ReActPrompt.DEFAULT_INSTRUCTIONS;
         private String systemPromptOverride;
         private int maxIterations = 8;
@@ -618,6 +625,21 @@ public final class ReActAgent implements Agent {
 
         public Builder memory(ChatMemory memory) {
             this.memory = memory;
+            return this;
+        }
+
+        /**
+         * 记忆的互斥实现。缺省为 {@link MemoryLock#local()}，仅在当前 JVM 内提供互斥。
+         * <p>
+         * 当同一份记忆会被<b>多个实例</b>并发访问时，需注入自行实现的跨进程
+         * {@link MemoryLock}；否则并发写入可能导致消息丢失或顺序错乱。
+         * 传入 {@code null} 时回退为默认本地实现。
+         * <p>
+         * 该锁会被 {@link LockedChatMemory} 用于包裹 {@link #memory(ChatMemory)} 配置的记忆；
+         * 若传入的记忆本身已是 {@code LockedChatMemory}，则不再重复包裹。
+         */
+        public Builder memoryLock(MemoryLock memoryLock) {
+            this.memoryLock = memoryLock;
             return this;
         }
 

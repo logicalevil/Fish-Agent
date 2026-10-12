@@ -10,6 +10,7 @@ import com.zheng.fishagent.llm.ChatModel;
 import com.zheng.fishagent.llm.ollama.OllamaChatModel;
 import com.zheng.fishagent.memory.ChatMemory;
 import com.zheng.fishagent.memory.MessageWindowChatMemory;
+import com.zheng.fishagent.memory.lock.MemoryLock;
 import com.zheng.fishagent.tool.Tool;
 import com.zheng.fishagent.tool.ToolRegistry;
 
@@ -85,6 +86,7 @@ public final class FishAgent {
         private int maxRepeatedToolCalls = 3;
         private Double temperature;
         private Tracer tracer = Tracer.NOOP;
+        private MemoryLock memoryLock = MemoryLock.local();
 
         private Builder() {
         }
@@ -246,6 +248,20 @@ public final class FishAgent {
         }
 
         /**
+         * 记忆的互斥实现。缺省为 {@link MemoryLock#local()}，仅在当前 JVM 内提供互斥。
+         * <p>
+         * 当同一份记忆会被<b>多个实例</b>并发访问时（例如多副本部署 + 共享会话），
+         * 需注入自行实现的跨进程 {@link MemoryLock}。框架不提供跨进程实现，也不依赖
+         * 任何分布式组件——由使用者按自己的基础设施选择。
+         * <p>
+         * 传入 {@code null} 时回退为默认本地实现。
+         */
+        public Builder memoryLock(MemoryLock memoryLock) {
+            this.memoryLock = memoryLock;
+            return this;
+        }
+
+        /**
          * 组装并返回 Agent。
          *
          * @throws FishAgentException 未指定任何模型时抛出
@@ -258,7 +274,8 @@ public final class FishAgent {
                     .streaming(streaming)
                     .maxIterations(maxIterations)
                     .maxRepeatedToolCalls(maxRepeatedToolCalls)
-                    .tracer(tracer);
+                    .tracer(tracer)
+                    .memoryLock(memoryLock);
             if (memory != null) {
                 builder.memory(memory);
             }

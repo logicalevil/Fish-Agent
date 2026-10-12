@@ -14,6 +14,7 @@ Fish-Agent 让你用几行代码把大模型变成能**调用工具、记住上�
 - **记忆系统**：内存记忆、滑动窗口裁剪、JSONL 文件持久化，可自由组合。
 - **流式输出**：SSE/NDJSON 逐 token 回调，文本模式下带「最终答案门控」，不会泄露中间推理。
 - **健壮性**：迭代轮数上限、重复调用判死循环、工具异常转为错误文本自愈、参数名容错。
+- **可替换的记忆锁**：所有记忆的并发保护经由 `MemoryLock` 接口；默认本地实现零配置可用，多实例场景自行注入跨进程实现（框架不依赖任何分布式组件）。
 - **可观测**：`Tracer` / `Span` 扩展点，在 run、模型调用、工具执行三处自动埋点；默认零开销，可在监听器里直接读到 traceId。
 - **JPMS 友好**：`Automatic-Module-Name: com.zheng.fishagent`。
 
@@ -172,6 +173,73 @@ ChatMemory file2 = FileChatMemory.of("session-1", Path.of("data")); // 自定义
 ```java
 FishAgent.builder().ollama("qwen2.5:7b").session("user-42", 30).build();
 ```
+
+### 并发保护（MemoryLock）
+
+框架内所有记忆的并发保护都经由 `MemoryLock` 接口，记忆实现自身不再使用 `synchronized`。默认实现是 `MemoryLock.local()`（基于 `ReentrantLock`），**仅在当前 JVM 内**提供互斥。
+
+**单机部署**：无需任何配置，开箱可用。
+
+**多实例部署**：同一个会话会被负载均衡分发到不同节点，此时本地锁无法防止并发写入导致的消息丢失。需要自行实现 `MemoryLock` 并注入：
+
+```java
+import com.zheng.fishagent.memory.lock.MemoryLock;
+import java.time.Duration;
+
+public class MyRedisLock implements MemoryLock {
+
+    private final RedissonClient client;          // 复用应用已有的客户端
+
+    public MyRedisLock(RedissonClient client) {
+        this.client = client;
+    }
+
+    @Override
+    public boolean isDistributed() {
+        return true;                              // 声明「跨进程有效」
+    }
+
+    @Override
+    public <T> T execute(String resource, Duration timeout, Supplier<T> action) {
+        RLock lock = client.getLock("fish-agent:memory:" + resource);
+        boolean acquired = lock.tryLock(timeout.toMillis(), 30_000, TimeUnit.MILLISECONDS);
+        if (!acquired) {
+            throw FishAgentException.of("获取记忆锁超时：%s", resource);
+        }
+        try {
+            return action.get();
+        } finally {
+            lock.unlock();
+        }
+    }
+}
+```
+
+然后注入：
+
+```java
+Agent agent = FishAgent.builder()
+        .ollama("qwen2.5:7b")
+        .session("user-42")
+        .memoryLock(new MyRedisLock(redissonClient))
+        .build();
+```
+
+**关于 `isDistributed()`**：它由实现自行声明，框架不做校验。请如实返回——返回 `false` 表示只在当前进程内互斥，多实例场景下不安全。业务侧可以在启动时据此判断：
+
+```java
+if (!memoryLock.isDistributed() && isMultiInstanceDeployment) {
+    log.warn("当前使用非分布式记忆锁，多实例部署下同一会话可能被并发修改");
+}
+```
+
+**给实现者的三条注意事项**：
+
+1. **不要自建客户端**。Redisson / Jedis 实例应由应用统一持有并注入，避免连接池重复；版本也由应用决定，不会与框架冲突（框架不依赖任何分布式组件）。
+2. **租约必须覆盖临界区**。若使用带 `leaseTime` 的锁，该值必须大于单次记忆操作的最大耗时，否则锁可能在临界区执行中途失效——这比不加锁更危险。
+3. **公平锁没有显式租约**。Redisson 的 `getFairLock` 不支持 `leaseTime`，只能依赖看门狗续期，存在「JVM 长暂停导致续期失败」的窗口。需要严格排队时请评估这一点。
+
+`add` / `messages` / `clear` 各自进入一次临界区，因此**一次 run 会多次加解锁**。若你的跨进程锁 RTT 较高，可在自己的实现里做批处理优化。
 
 ---
 
@@ -369,7 +437,8 @@ src/main/java/com/zheng/fishagent/
 │   └── ollama/ OllamaChatModel
 ├── tool/       Tool / ToolSpec / FunctionTool / MethodTool / ToolRegistry / ToolSchemaGenerator
 │   └── annotation/ @AgentTool / @ToolParam
-├── memory/     ChatMemory / InMemory / MessageWindow / FileChatMemory
+├── memory/     ChatMemory / InMemory / MessageWindow / FileChatMemory / LockedChatMemory
+│   └── lock/   MemoryLock / LocalMemoryLock
 ├── prompt/     ReActPrompt / ReActOutputParser / ReActStep
 ├── agent/      Agent / ReActAgent / ToolCallMode / AgentResult
 │               AgentListener / CompositeAgentListener
