@@ -15,6 +15,7 @@ Fish-Agent 让你用几行代码把大模型变成能**调用工具、记住上�
 - **流式输出**：SSE/NDJSON 逐 token 回调，文本模式下带「最终答案门控」，不会泄露中间推理。
 - **健壮性**：迭代轮数上限、重复调用判死循环、工具异常转为错误文本自愈、参数名容错。
 - **可替换的记忆锁**：所有记忆的并发保护经由 `MemoryLock` 接口；默认本地实现零配置可用，多实例场景自行注入跨进程实现（框架不依赖任何分布式组件）。
+- **上下文摘要压缩**：长对话超过阈值时自动把早期消息压成摘要，早期信息不再硬丢失；摘要失败自动退化为窗口裁剪，原文始终可查。
 - **可观测**：`Tracer` / `Span` 扩展点，在 run、模型调用、工具执行三处自动埋点；默认零开销，可在监听器里直接读到 traceId。
 - **JPMS 友好**：`Automatic-Module-Name: com.zheng.fishagent`。
 
@@ -173,6 +174,49 @@ ChatMemory file2 = FileChatMemory.of("session-1", Path.of("data")); // 自定义
 ```java
 FishAgent.builder().ollama("qwen2.5:7b").session("user-42", 30).build();
 ```
+
+### 上下文摘要压缩（SummarizingChatMemory）
+
+窗口裁剪的缺陷是**早期信息硬丢失**——窗口一滑，此前的结论、约定和事实就不再进入模型视野，模型会「忘记」已经达成共识的事。
+
+`SummarizingChatMemory` 用**摘要**替代**丢弃**：累积的消息超过阈值时，把早期消息交给模型压成一条摘要，此后参与上下文的变成「摘要 + 最近若干条原文」。
+
+```java
+import com.zheng.fishagent.memory.SummarizingChatMemory;
+
+ChatMemory memory = SummarizingChatMemory.of(
+        MessageWindowChatMemory.of("user-42", 100),   // 底层保存原文
+        summarizeModel,                                // 用于生成摘要的模型
+        20,                                            // 超过 20 条未摘要消息时触发
+        5);                                            // 保留最近 5 条原文
+
+Agent agent = FishAgent.builder()
+        .ollama("qwen2.5:7b")
+        .memory(memory)
+        .build();
+```
+
+**产出形态**：
+
+```
+[摘要（USER 角色，带固定前缀）] [最近第 1 条] [最近第 2 条] ... [最新一条]
+```
+
+**三个要点**：
+
+1. **同步触发**。压缩发生在 `add()` 时，框架不创建线程（符合「框架不做内部同步、不创建线程」的约束）。代价是**每跨过一次阈值，该次 `add()` 会多出一次模型调用**（数秒）——触发频率低，通常可接受。
+2. **链式累积**。再次压缩时，上一次的摘要会并入输入，避免二次压缩把早期信息压掉。
+3. **失败退化**。摘要模型抛异常或返回空白时**不会中断对话**，而是退化为「只保留最近 N 条」，即窗口语义。可通过 `lastCompactionSucceeded()` 观察是否发生了降级。
+
+**原文永不丢失**：压缩只改变 `messages()` 的返回结果，全部原始消息可通过 `fullHistory()` 读取。注意**摘要是不可逆的有损操作**——细节会丢失，需要精确回溯时应读取原文。
+
+**参数约束**：`keepMessages` 必须小于 `triggerMessages`，否则会出现「刚压缩完立即又触发」的抖动。构造时会校验并快速失败。
+
+**关于摘要模型**：可以传入一个与主对话不同的（通常更轻量的）模型，摘要任务对模型能力要求不高。
+
+**与窗口装饰器组合**：推荐「外层摘要、内层窗口」——底层窗口放宽（如 100 条）用于保存原文，外层摘要负责控制实际进入上下文的内容量。
+
+> 行为契约见 `openspec/specs/context-summarization/spec.md`。
 
 ### 并发保护（MemoryLock）
 
@@ -437,7 +481,8 @@ src/main/java/com/zheng/fishagent/
 │   └── ollama/ OllamaChatModel
 ├── tool/       Tool / ToolSpec / FunctionTool / MethodTool / ToolRegistry / ToolSchemaGenerator
 │   └── annotation/ @AgentTool / @ToolParam
-├── memory/     ChatMemory / InMemory / MessageWindow / FileChatMemory / LockedChatMemory
+├── memory/     ChatMemory / InMemory / MessageWindow / FileChatMemory / SummarizingChatMemory
+│   │           LockedChatMemory
 │   └── lock/   MemoryLock / LocalMemoryLock
 ├── prompt/     ReActPrompt / ReActOutputParser / ReActStep
 ├── agent/      Agent / ReActAgent / ToolCallMode / AgentResult
