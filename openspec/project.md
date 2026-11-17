@@ -46,6 +46,8 @@ com.zheng.fishagent
 ├── tool/                Tool / ToolSpec / FunctionTool / MethodTool / ToolRegistry / ToolSchemaGenerator
 │   └── annotation/      @AgentTool / @ToolParam
 ├── memory/              ChatMemory / InMemoryChatMemory / MessageWindowChatMemory / FileChatMemory
+│                        SummarizingChatMemory（摘要压缩）/ LockedChatMemory（加锁装饰器）
+│   └── lock/            MemoryLock（SPI）/ LocalMemoryLock（默认本地实现）
 ├── prompt/              ReActPrompt / ReActOutputParser / ReActStep
 ├── agent/               Agent / ReActAgent / ToolCallMode / AgentResult
 │                        AgentListener / CompositeAgentListener
@@ -57,7 +59,7 @@ com.zheng.fishagent
 ## 构建与测试
 
 ```powershell
-mvn -f pom.xml clean test                    # 运行 35 个单元测试
+mvn -f pom.xml clean test                    # 运行 86 个单元测试
 mvn -f pom.xml clean package                 # 产出 jar + sources jar + javadoc jar
 mvn -f pom.xml clean install                 # 安装到本地仓库
 mvn -f pom.xml exec:java                     # 启动控制台示例（需本地 Ollama）
@@ -73,7 +75,7 @@ mvn -f pom.xml -Prelease clean deploy        # 发布到 Maven Central（需 GPG
 - Scenario 必须是**可验证的行为**，不是愿望。规范里的具体数字（消息条数、token 数、迭代数）都来自实际断言。
 - 规范记录**现状**；对已知取舍要写明理由与边界，不要粉饰成理想行为。
 - 语言：正文用中文，`SHALL` / `MUST` / `WHEN` / `THEN` 保留英文（对齐 RFC 2119 的强度语义，也便于检索）。
-- 现有 12 份规范的能力清单：
+- 现有 14 份规范的能力清单：
 
 | 能力 | 覆盖范围 |
 | --- | --- |
@@ -84,6 +86,8 @@ mvn -f pom.xml -Prelease clean deploy        # 发布到 Maven Central（需 GPG
 | `tool-schema-generation` | Java 类型 ↔ JSON Schema 双向映射与参数转换 |
 | `tool-call-resilience` | 工具异常兜底、未知工具、死循环检测、参数名纠正 |
 | `conversation-memory` | 记忆抽象与三种实现（内存 / 窗口 / JSONL 文件） |
+| `memory-locking` | 记忆并发保护 SPI（MemoryLock / LocalMemoryLock / LockedChatMemory） |
+| `context-summarization` | 摘要压缩（SummarizingChatMemory）触发、回退与组合 |
 | `ollama-model-adapter` | Ollama 协议适配、同步与流式解析、错误映射 |
 | `agent-events` | 事件契约、触发时序、组合监听器语义 |
 | `streaming-answer-gate` | 文本模式的流式最终答案门控 |

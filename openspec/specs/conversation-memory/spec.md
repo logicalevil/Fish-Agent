@@ -3,9 +3,7 @@
 ## Purpose
 
 定义会话记忆的契约：记忆抽象接口、进程内实现、滑动窗口裁剪与 JSONL 文件持久化，以及消息与工具调用在持久化时的序列化形式。
-
 ## Requirements
-
 ### Requirement: ChatMemory 定义会话记忆契约
 
 `ChatMemory` SHALL 暴露 `id()`、`add(Message)`、`addAll(List<Message>)`、`messages()`、`clear()`、`size()`、`isEmpty()`。各实现 SHALL 返回调用方可安全读取而不会改动已存历史的列表。
@@ -28,7 +26,7 @@
 
 ### Requirement: 内存记忆是默认实现
 
-`InMemoryChatMemory` SHALL 用线程安全的进程内集合存储消息，且当 Agent 组装时未指定记忆，它 SHALL 作为默认记忆。`InMemoryChatMemory(String id)` SHALL 通过生成 `session-<uuid>` 标识来拒绝 null 或空白 id。
+`InMemoryChatMemory` SHALL 用线程安全的进程内集合存储消息，且当 Agent 组装时未指定记忆，它 SHALL 作为默认记忆。`InMemoryChatMemory(String id)` SHALL 通过生成 `session-<uuid>` 标识来拒绝 null 或空白 id。其并发保护 SHALL 经由 `MemoryLock` 表达，默认使用 `LocalMemoryLock`。
 
 #### Scenario: 裸 Agent 的默认记忆
 - **WHEN** 以 `ReActAgent.builder().model(...).build()` 组装且未指定记忆
@@ -42,9 +40,13 @@
 - **WHEN** 从多个线程追加消息
 - **THEN** 不发生并发修改异常，且所有消息都被保留
 
+#### Scenario: 默认锁不阻塞
+- **WHEN** 单线程向默认记忆追加消息
+- **THEN** 动作立即完成，无额外等待
+
 ### Requirement: 滑动窗口记忆在保留系统消息的前提下限制上下文
 
-`MessageWindowChatMemory` SHALL 装饰另一个 `ChatMemory`，其 `messages()` SHALL 最多返回 `maxMessages` 条非 SYSTEM 消息，同时 SHALL 始终包含全部 SYSTEM 消息，并 SHALL 通过 `fullHistory()` 暴露未被裁剪的完整历史。
+`MessageWindowChatMemory` SHALL 装饰另一个 `ChatMemory`，其 `messages()` SHALL 最多返回 `maxMessages` 条非 SYSTEM 消息，同时 SHALL 始终包含全部 SYSTEM 消息，并 SHALL 通过 `fullHistory()` 暴露未被裁剪的完整历史。`windowing` SHALL 允许在已有记忆之上套一层窗口裁剪。其并发保护由注入的 `MemoryLock` 承担。
 
 #### Scenario: 窗口保留最近的非系统消息
 - **WHEN** 大小为 3 的窗口收到 1 条 SYSTEM 消息与 6 条 USER 消息
@@ -77,9 +79,29 @@
 - **WHEN** 以文件记忆作为被装饰者调用 `windowing(delegate, n)`
 - **THEN** 持久化仍然发生，同时 `messages()` 被窗口裁剪
 
+#### Scenario: SYSTEM 保留且位于最前
+- **WHEN** 反复追加消息直到窗口滑动
+- **THEN** 所有 SYSTEM 消息仍按原始顺序出现在结果的最前面
+
+#### Scenario: 默认窗口大小
+- **WHEN** 通过 `of()` 构建且 `maxMessages` 小于 1
+- **THEN** 被钳制为 1
+
+#### Scenario: 保留全部消息不变
+- **WHEN** 反复向窗口记忆追加消息
+- **THEN** 底层存储保留每一条消息
+
+#### Scenario: 跨多轮重复读取
+- **WHEN** 在追加新消息之后再次读取窗口
+- **THEN** 窗口被重新计算以包含最近的 `maxMessages` 条消息
+
+#### Scenario: 装饰后的标识透传
+- **WHEN** 使用 `windowing` 包装一个标识为 `s1` 的记忆
+- **THEN** 该装饰器的 `id()` 为 `s1`
+
 ### Requirement: 文件记忆以 JSONL 持久化会话
 
-`FileChatMemory` SHALL 向 `<目录>/<安全会话标识>.jsonl` 每行追加一个 JSON 对象，默认目录为相对于工作目录的 `.fishagent/sessions`，SHALL 在构造时重新加载已有内容，并 SHALL 通过 `file()` 暴露解析后的路径。
+`FileChatMemory` SHALL 向 `<目录>/<安全会话标识>.jsonl` 每行追加一个 JSON 对象，默认目录为相对于工作目录的 `.fishagent/sessions`，SHALL 在构造时重新加载已有内容，并 SHALL 通过 `file()` 暴露解析后的路径。其进程内互斥 SHALL 由注入的 `MemoryLock` 承担，而 SHALL NOT 依赖方法级的 `synchronized`。
 
 #### Scenario: 消息在重新加载后依然存在
 - **WHEN** 追加一条用户消息、一条携带工具调用的助手消息、一条工具结果消息，随后以相同的会话标识与目录重新创建记忆
@@ -127,6 +149,10 @@
 #### Scenario: 从原始映射批量导入
 - **WHEN** 以一组原始消息映射调用 `importMessages`
 - **THEN** 每个映射被转换为 `Message` 并按顺序追加
+
+#### Scenario: 替换默认锁为跨进程实现
+- **WHEN** 以 `LockedChatMemory` 包裹文件记忆并注入跨进程 `MemoryLock`
+- **THEN** 记忆访问经由该锁，而文件仍按 JSONL 格式持久化
 
 ### Requirement: 消息通过可移植的映射表示完成往返
 
@@ -187,3 +213,40 @@
 #### Scenario: 便捷工厂提供 id
 - **WHEN** 使用 `ToolCall.of(name, arguments)`
 - **THEN** 所得调用的 id 为非空白生成值
+
+### Requirement: 记忆的并发保护由 MemoryLock 承担
+
+框架内所有 `ChatMemory` 实现的并发保护 SHALL 经由 `MemoryLock`，SHALL NOT 在实现内部直接使用 `synchronized`。未显式配置锁时，实现 SHALL 使用不引入额外依赖的本地实现，且行为与既有一致。压缩类实现 SHALL 遵守同一条约束。
+
+#### Scenario: 未配置锁时默认可用
+- **WHEN** 组装任意 `ChatMemory` 实现且不配置锁
+- **THEN** 该记忆可正常工作，且不因此新增运行时依赖
+
+#### Scenario: 配置跨进程锁后互斥范围扩大
+- **WHEN** 为记忆配置 `isDistributed()` 为 true 的锁
+- **THEN** 对同一资源标识的并发访问在多个实例之间互斥
+
+#### Scenario: 锁实现可被替换而不改接口
+- **WHEN** 用另一 `MemoryLock` 实现重新组装同一记忆类型
+- **THEN** 无需修改该记忆类或其实现
+
+#### Scenario: 摘要压缩实现同样遵守该约束
+- **WHEN** 检查 `SummarizingChatMemory` 的并发保护方式
+- **THEN** 其互斥经由 `MemoryLock`，而非自身的 `synchronized`
+
+### Requirement: 摘要压缩是独立的记忆实现
+
+`ChatMemory` 的能力集合 SHALL 包含 `SummarizingChatMemory` 这一实现，它与 `InMemoryChatMemory`、`MessageWindowChatMemory`、`FileChatMemory` 并列，并 SHALL 可与其它的记忆实现自由组合。压缩 SHALL 只改变 `messages()` 返回的消息列表，SHALL NOT 删除底层原文。
+
+#### Scenario: 与其它实现并列可用
+- **WHEN** 以 `SummarizingChatMemory` 作为会话记忆组装 Agent
+- **THEN** Agent 正常工作，且压缩对上层透明
+
+#### Scenario: 压缩不改变原文
+- **WHEN** 压缩发生之后检查底层记忆
+- **THEN** 原文条数未减少
+
+#### Scenario: 组合顺序不破坏功能
+- **WHEN** 以摘要包裹窗口，或以窗口包裹摘要
+- **THEN** 两种组合下 `messages()` 均可用，且返回条数不超过各自的上限
+

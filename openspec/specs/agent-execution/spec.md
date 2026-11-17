@@ -3,9 +3,7 @@
 ## Purpose
 
 定义一次 run 的完整执行契约：ReAct 主循环如何推进、什么条件下终止、三种结束原因各自意味着什么、消息如何写入记忆、多轮 token 用量如何累计。
-
 ## Requirements
-
 ### Requirement: 一次 run 执行 ReAct 循环直到模型不再请求工具
 
 `Agent.run(String)` SHALL 执行一个循环：每轮恰好发起一次模型调用，执行模型请求的工具，把结果回填，然后继续下一轮。只要某次模型响应不包含工具调用，循环 SHALL 立即终止；该响应的正文 SHALL 作为最终答案。
@@ -102,11 +100,23 @@
 
 ### Requirement: Agent 实例有状态且非线程安全
 
-`ReActAgent` SHALL 绑定单个 `ChatMemory` 实例，并 SHALL 被标注为不可并发使用。框架 SHALL NOT 创建线程，SHALL NOT 做内部同步。
+`ReActAgent` SHALL 绑定单个 `ChatMemory` 实例，并 SHALL 被标注为不可并发使用。框架 SHALL NOT 创建线程，SHALL NOT 自行发起同步。当调用方配置了 `MemoryLock` 时，记忆的互斥 SHALL 由该锁承担，而非由框架在 `ReActAgent` 内自行加锁。
 
 #### Scenario: 记忆按 Agent 实例绑定
 - **WHEN** 以不同的会话标识组装两个 Agent
 - **THEN** 每个 Agent 只读写自己的记忆
+
+#### Scenario: 框架不创建线程
+- **WHEN** 完成一次 run
+- **THEN** 执行期间没有由框架创建的线程，回调与 run 位于同一线程
+
+#### Scenario: 未配置锁时行为与既有一致
+- **WHEN** 构建 Agent 时未调用 `memoryLock(...)`
+- **THEN** 记忆访问不引入额外的跨进程开销，且 `MemoryLock.isDistributed()` 为 `false`
+
+#### Scenario: 配置锁后记忆访问经过该锁
+- **WHEN** 以自定义 `MemoryLock` 构建 Agent 并执行一次 run
+- **THEN** 该锁的 `execute` 被调用，且被保护的资源标识等于记忆的 `id()`
 
 ### Requirement: Agent 暴露自身配置并支持重置
 
@@ -139,3 +149,4 @@
 #### Scenario: 请求上下文的顺序为「系统提示词 → 历史」
 - **WHEN** 检查为某次模型调用构造的请求
 - **THEN** 其第一条消息角色为 `system` 且携带当前系统提示词，随后按时间顺序跟随记忆中的消息
+

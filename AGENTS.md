@@ -45,7 +45,7 @@ openspec archive <name>                     # 6. 归档，规范并入 openspec/
 ## 代码约定
 
 - **依赖**：运行时只有 Jackson。新增依赖需要充分理由。
-- **测试**：`mvn -f pom.xml test`，35 个测试必须全绿。测试**不得依赖真实模型或网络**——用 `FakeChatModel`（按脚本返回响应）或 `com.sun.net.httpserver`（HTTP 桩）。
+- **测试**：`mvn -f pom.xml test`，86 个测试必须全绿。测试**不得依赖真实模型或网络**——用 `FakeChatModel`（按脚本返回响应）或 `com.sun.net.httpserver`（HTTP 桩）。
 - **异常**：用 `FishAgentException`，不要抛裸 `RuntimeException`。
 - **工具失败**：`ToolRegistry.execute` 必须兜住所有异常并返回以 `错误：` 开头的文本，绝不向上抛。
 - **Builder 风格**：链式、返回 `this`、必填项在 `build()` 里校验并快速失败。
