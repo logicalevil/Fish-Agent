@@ -5,7 +5,7 @@ import com.sun.net.httpserver.HttpServer;
 import com.zheng.fishagent.core.FishAgentException;
 import com.zheng.fishagent.llm.ChatRequest;
 import com.zheng.fishagent.llm.ChatResponse;
-import com.zheng.fishagent.message.Message;
+import com.zheng.fishagent.message.message.Message;
 import com.zheng.fishagent.message.Role;
 import com.zheng.fishagent.message.ToolCall;
 import com.zheng.fishagent.tool.ToolSpec;

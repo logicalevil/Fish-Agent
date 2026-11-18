@@ -1,7 +1,7 @@
 package com.zheng.fishagent.memory;
 
 import com.zheng.fishagent.memory.lock.MemoryLock;
-import com.zheng.fishagent.message.Message;
+import com.zheng.fishagent.message.message.Message;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

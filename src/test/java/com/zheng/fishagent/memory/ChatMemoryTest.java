@@ -1,6 +1,6 @@
 package com.zheng.fishagent.memory;
 
-import com.zheng.fishagent.message.Message;
+import com.zheng.fishagent.message.message.Message;
 import com.zheng.fishagent.message.ToolCall;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

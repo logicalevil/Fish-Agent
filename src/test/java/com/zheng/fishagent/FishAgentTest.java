@@ -6,7 +6,7 @@ import com.zheng.fishagent.agent.FakeChatModel;
 import com.zheng.fishagent.core.FishAgentException;
 import com.zheng.fishagent.llm.ChatResponse;
 import com.zheng.fishagent.llm.TokenUsage;
-import com.zheng.fishagent.message.Message;
+import com.zheng.fishagent.message.message.Message;
 import com.zheng.fishagent.message.ToolCall;
 import com.zheng.fishagent.tool.annotation.AgentTool;
 import com.zheng.fishagent.tool.annotation.ToolParam;

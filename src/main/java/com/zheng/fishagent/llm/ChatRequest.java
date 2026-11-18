@@ -1,6 +1,6 @@
 package com.zheng.fishagent.llm;
 
-import com.zheng.fishagent.message.Message;
+import com.zheng.fishagent.message.message.Message;
 import com.zheng.fishagent.tool.ToolSpec;
 
 import java.util.ArrayList;

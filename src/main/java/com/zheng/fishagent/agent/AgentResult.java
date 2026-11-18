@@ -1,7 +1,7 @@
 package com.zheng.fishagent.agent;
 
 import com.zheng.fishagent.llm.TokenUsage;
-import com.zheng.fishagent.message.Message;
+import com.zheng.fishagent.message.message.Message;
 
 import java.util.List;
 

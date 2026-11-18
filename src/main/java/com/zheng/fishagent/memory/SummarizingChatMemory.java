@@ -4,7 +4,7 @@ import com.zheng.fishagent.core.FishAgentException;
 import com.zheng.fishagent.llm.ChatModel;
 import com.zheng.fishagent.llm.ChatRequest;
 import com.zheng.fishagent.llm.ChatResponse;
-import com.zheng.fishagent.message.Message;
+import com.zheng.fishagent.message.message.Message;
 import com.zheng.fishagent.message.Role;
 
 import java.util.ArrayList;

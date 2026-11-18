@@ -1,6 +1,6 @@
 package com.zheng.fishagent.agent;
 
-import com.zheng.fishagent.message.Message;
+import com.zheng.fishagent.message.message.Message;
 import com.zheng.fishagent.message.ToolCall;
 
 /**
@@ -36,13 +36,11 @@ public interface AgentListener {
      */
     default void onMessage(Message message) {
     }
-
     /**
      * 即将执行一次工具调用。
      */
     default void onToolCall(ToolCall call) {
     }
-
     /**
      * 工具执行完成。
      */

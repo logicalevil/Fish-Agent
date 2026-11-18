@@ -6,22 +6,20 @@ import com.zheng.fishagent.llm.ChatResponse;
 import com.zheng.fishagent.llm.StreamListener;
 import com.zheng.fishagent.llm.TokenUsage;
 import com.zheng.fishagent.memory.ChatMemory;
+import com.zheng.fishagent.memory.ChatMemoryView;
 import com.zheng.fishagent.memory.InMemoryChatMemory;
 import com.zheng.fishagent.memory.LockedChatMemory;
 import com.zheng.fishagent.memory.lock.MemoryLock;
-import com.zheng.fishagent.message.Message;
+import com.zheng.fishagent.message.message.Message;
 import com.zheng.fishagent.message.ToolCall;
+import com.zheng.fishagent.message.message.UserMessage;
 import com.zheng.fishagent.prompt.ReActOutputParser;
 import com.zheng.fishagent.prompt.ReActPrompt;
 import com.zheng.fishagent.prompt.ReActStep;
 import com.zheng.fishagent.tool.Tool;
 import com.zheng.fishagent.tool.ToolRegistry;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -77,6 +75,11 @@ public final class ReActAgent implements Agent {
      * 每轮的用户输入、助手输出、工具结果都会写入这里，下一轮再取回拼进上下文。
      */
     private final ChatMemory memory;
+
+    /**
+     * 会话记忆视图
+     */
+    private final ChatMemoryView memoryView;
 
     /** 用户追加的行为准则，会与内置的 ReAct 格式说明拼接。 */
     private final String instructions;
@@ -136,6 +139,8 @@ public final class ReActAgent implements Agent {
         MemoryLock lock = builder.memoryLock == null ? MemoryLock.local() : builder.memoryLock;
         this.memory = LockedChatMemory.wrap(
                 builder.memory == null ? new InMemoryChatMemory() : builder.memory, lock);
+        //会话记忆的视图，包括摘要提示词，工具等
+        this.memoryView = builder.memoryView;
         this.instructions = builder.instructions;
         this.systemPromptOverride = builder.systemPromptOverride;
         // 轮数下限为 1：至少允许一次模型调用，否则 run 会直接空转退出
@@ -145,6 +150,7 @@ public final class ReActAgent implements Agent {
         this.streaming = builder.streaming;
         this.mode = builder.mode;
         this.tracer = builder.tracer == null ? Tracer.NOOP : builder.tracer;
+
     }
 
     public static Builder builder() {
@@ -167,6 +173,8 @@ public final class ReActAgent implements Agent {
     public ChatMemory memory() {
         return memory;
     }
+
+    public ChatMemoryView memoryView() {return memoryView;}
 
     @Override
     public List<Tool> tools() {
@@ -237,16 +245,19 @@ public final class ReActAgent implements Agent {
         callback.onStart(userInput);
         // 先落用户输入再进循环，保证构建请求时上下文是完整的
         if (userInput != null && !userInput.isBlank()) {
-            memory.add(Message.user(userInput));
+            memoryView.add(new UserMessage(userInput));
         }
 
         // ---- 循环状态：全部为局部变量，天然隔离多次 run 之间的相互影响 ----
         // 用量累加器（不可变，每次 plus 生成新对象）
         TokenUsage usage = TokenUsage.EMPTY;
         // 工具调用计数：key 为「工具名|参数」签名，用于识别死循环
-        Map<String, Integer> callCounts = new LinkedHashMap<>();
+        Map<String, Integer> callCounts = new HashMap<>();
+        //现在的调用次数
         int iteration = 0;
+        //最终答案文本
         String lastText = "";
+        //结束原因
         String stopReason = AgentResult.STOP;
 
         try {
@@ -264,7 +275,7 @@ public final class ReActAgent implements Agent {
 
                 // 3a) 没有工具调用 ⇒ 这就是最终答案，正常收工
                 if (calls.isEmpty()) {
-                    memory.add(assistant);
+                    memoryView.add(assistant);
                     callback.onMessage(assistant);
                     lastText = finalText(assistant);
                     // 优先透传模型自带的结束原因（如 length），缺失时归为 stop
@@ -286,7 +297,7 @@ public final class ReActAgent implements Agent {
 
                 // 助手消息（含 tool_calls）必须先于工具结果写入，
                 // 否则下一轮上下文里会出现「结果在前面、调用在后面」的非法时序
-                memory.add(assistant);
+                memoryView.add(assistant);
                 callback.onMessage(assistant);
 
                 boolean loopDetected = false;
@@ -311,7 +322,7 @@ public final class ReActAgent implements Agent {
                     }
                     callback.onToolResult(normalized, result);
                     // 工具结果的角色/包装形式由模式决定，见 observation()
-                    memory.add(observation(normalized, result));
+                    memoryView.add(observation(normalized, result));
                 }
 
                 // 3c) 判定死循环 ⇒ 提前终止，标记为未成功
@@ -380,7 +391,7 @@ public final class ReActAgent implements Agent {
     private ChatRequest buildRequest() {
         List<Message> context = new ArrayList<>();
         context.add(Message.system(systemPrompt()));
-        context.addAll(memory.messages());
+        context.addAll(memoryView.messages());
 
         return ChatRequest.builder()
                 .messages(context)
@@ -432,7 +443,7 @@ public final class ReActAgent implements Agent {
                                TokenUsage usage, String stopReason, boolean success) {
         // AgentResult 内部会对 messages 做 List.copyOf，得到不可变快照，
         // 因此返回值不会随后续 run 修改记忆而发生变化
-        AgentResult result = new AgentResult(text, memory.messages(), iterations, usage, stopReason, success);
+        AgentResult result = new AgentResult(text, memoryView.messages(), iterations, usage, stopReason, success);
         callback.onFinish(result);
         return result;
     }
@@ -464,7 +475,7 @@ public final class ReActAgent implements Agent {
      * 并非合格的答案。因此只作为最后手段，并配合 {@code success = false} 让调用方自行判断。
      */
     private String fallbackText() {
-        List<Message> messages = memory.messages();
+        List<Message> messages = memoryView.messages();
         for (int i = messages.size() - 1; i >= 0; i--) {
             Message message = messages.get(i);
             if (message.role() == com.zheng.fishagent.message.Role.ASSISTANT && !message.content().isBlank()) {
@@ -609,6 +620,7 @@ public final class ReActAgent implements Agent {
         private ToolCallMode mode = ToolCallMode.NATIVE_TOOLS;
         private Tracer tracer = Tracer.NOOP;
 
+        private ChatMemoryView memoryView;
         private Builder() {
         }
 
@@ -701,6 +713,10 @@ public final class ReActAgent implements Agent {
             return this;
         }
 
+        public Builder memoryView(ChatMemoryView memoryView) {
+            this.memoryView = memoryView;
+            return this;
+        }
         public ReActAgent build() {
             return new ReActAgent(this);
         }
