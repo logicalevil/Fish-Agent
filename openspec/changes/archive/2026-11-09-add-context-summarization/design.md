@@ -151,7 +151,7 @@ AgentScope 源码注释印证：
 
 ### D9：`memory` 层不依赖 `agent` 层
 
-**决策**：`SummarizingChatMemory` 只依赖 `com.zheng.fishagent.message.Message` 与 `com.zheng.fishagent.llm.ChatModel`，不依赖 `agent` 包。
+**决策**：`SummarizingChatMemory` 只依赖 `com.zheng.fishagent.message.message.Message` 与 `com.zheng.fishagent.llm.ChatModel`，不依赖 `agent` 包。
 
 **理由**：保持既有分层（`ChatMemory` 现在只依赖 `message`）。`ChatModel` 属于 `llm` 层，被 `memory` 依赖不产生环。
 
