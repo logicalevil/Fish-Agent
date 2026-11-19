@@ -16,12 +16,17 @@ public final class AssistantMessage extends BaseMessage {
         this.toolCalls = toolCalls == null ? List.of() : List.copyOf(toolCalls);
     }
 
-    public List<ToolCall> toolCalls() {
-        return toolCalls;
+    public static List<ToolCall> toolCalls(Message message) {
+        if (message instanceof AssistantMessage){
+            return ((AssistantMessage) message).toolCalls;
+        }else{
+            throw new IllegalArgumentException("message is not an AssistantMessage");
+        }
+
     }
 
-    public boolean hasToolCalls() {
-        return !toolCalls.isEmpty();
+    public static boolean hasToolCalls(Message message) {
+        return !toolCalls(message).isEmpty();
     }
 
     @Override

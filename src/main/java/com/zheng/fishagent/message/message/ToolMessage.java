@@ -17,12 +17,28 @@ public final class ToolMessage extends BaseMessage {
         this.toolName = Objects.requireNonNull(toolName, "toolName 不能为空");
     }
 
-    public String toolCallId() {
-        return toolCallId;
+    public static String toolCallId(Message message) {
+        if(message instanceof ToolMessage){
+            return ((ToolMessage)message).getToolCallId();
+        }else{
+            throw new IllegalArgumentException("message is not a tool message");
+        }
+
+    }
+    public static String toolName(Message message) {
+        if(message instanceof ToolMessage){
+            return ((ToolMessage)message).toolName();
+        }else{
+            throw new IllegalArgumentException("message is not a tool message");
+        }
+    }
+
+    public String getToolCallId() {
+        return this.toolCallId;
     }
 
     public String toolName() {
-        return toolName;
+        return this.toolName;
     }
 
     @Override

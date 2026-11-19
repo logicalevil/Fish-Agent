@@ -10,6 +10,7 @@ import com.zheng.fishagent.memory.ChatMemoryView;
 import com.zheng.fishagent.memory.InMemoryChatMemory;
 import com.zheng.fishagent.memory.LockedChatMemory;
 import com.zheng.fishagent.memory.lock.MemoryLock;
+import com.zheng.fishagent.message.message.AssistantMessage;
 import com.zheng.fishagent.message.message.Message;
 import com.zheng.fishagent.message.ToolCall;
 import com.zheng.fishagent.message.message.UserMessage;
@@ -410,7 +411,7 @@ public final class ReActAgent implements Agent {
      */
     private List<ToolCall> resolveToolCalls(Message assistant) {
         if (mode == ToolCallMode.NATIVE_TOOLS) {
-            return assistant.toolCalls();
+            return AssistantMessage.toolCalls(assistant);
         }
         ReActStep step = ReActOutputParser.parse(assistant.content());
         if (step instanceof ReActStep.ToolRequest request) {

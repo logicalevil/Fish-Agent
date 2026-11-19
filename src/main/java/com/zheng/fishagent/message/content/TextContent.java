@@ -12,8 +12,6 @@ public final class TextContent implements Content {
     }
 
 
-
-
     @Override
     public String text() {
         return getText();

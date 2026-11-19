@@ -7,7 +7,7 @@ import java.util.List;
 
 public final class SystemMessage extends BaseMessage {
 
-    SystemMessage(List<Content> contents) {
+    public SystemMessage(List<Content> contents) {
         super(Role.SYSTEM, contents);
     }
 

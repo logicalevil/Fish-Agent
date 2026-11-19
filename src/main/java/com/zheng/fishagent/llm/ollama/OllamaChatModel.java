@@ -8,9 +8,11 @@ import com.zheng.fishagent.llm.ChatRequest;
 import com.zheng.fishagent.llm.ChatResponse;
 import com.zheng.fishagent.llm.StreamListener;
 import com.zheng.fishagent.llm.TokenUsage;
+import com.zheng.fishagent.message.message.AssistantMessage;
 import com.zheng.fishagent.message.message.Message;
 import com.zheng.fishagent.message.Role;
 import com.zheng.fishagent.message.ToolCall;
+import com.zheng.fishagent.message.message.ToolMessage;
 import com.zheng.fishagent.tool.ToolSpec;
 import com.zheng.fishagent.util.Json;
 
@@ -247,9 +249,9 @@ public final class OllamaChatModel implements ChatModel {
         wire.put("role", message.role().value());
         wire.put("content", message.content() == null ? "" : message.content());
 
-        if (message.role() == Role.ASSISTANT && message.hasToolCalls()) {
-            List<Map<String, Object>> calls = new ArrayList<>(message.toolCalls().size());
-            for (ToolCall call : message.toolCalls()) {
+        if (message.role() == Role.ASSISTANT && AssistantMessage.hasToolCalls(message)) {
+            List<Map<String, Object>> calls = new ArrayList<>( AssistantMessage.toolCalls(message).size());
+            for (ToolCall call :  AssistantMessage.toolCalls(message)) {
                 Map<String, Object> function = new LinkedHashMap<>();
                 function.put("name", call.name());
                 function.put("arguments", call.arguments());
@@ -257,8 +259,8 @@ public final class OllamaChatModel implements ChatModel {
             }
             wire.put("tool_calls", calls);
         }
-        if (message.role() == Role.TOOL && sendToolName && message.toolName() != null) {
-            wire.put("tool_name", message.toolName());
+        if (message.role() == Role.TOOL && sendToolName && ToolMessage.toolName(message) != null) {
+            wire.put("tool_name", ToolMessage.toolName(message));
         }
         return wire;
     }
