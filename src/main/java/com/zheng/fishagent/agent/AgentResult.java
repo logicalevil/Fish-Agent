@@ -1,7 +1,7 @@
 package com.zheng.fishagent.agent;
 
 import com.zheng.fishagent.llm.TokenUsage;
-import com.zheng.fishagent.message.Message;
+import com.zheng.fishagent.message.message.Message;
 
 import java.util.List;
 
@@ -36,6 +36,9 @@ public record AgentResult(
         usage = usage == null ? TokenUsage.EMPTY : usage;
     }
 
+    /**
+     * 是否因迭代预算耗尽而结束。等价于 {@code MAX_ITERATIONS.equals(stopReason())}。
+     */
     public boolean reachedMaxIterations() {
         return MAX_ITERATIONS.equals(stopReason);
     }

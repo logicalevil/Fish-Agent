@@ -35,5 +35,8 @@ build/
 ### VS Code ###
 .vscode/
 
+### 工具本地数据（非项目内容）###
+.proxyai/
+
 ### Mac OS ###
 .DS_Store

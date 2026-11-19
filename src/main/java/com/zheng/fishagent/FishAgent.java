@@ -1,13 +1,16 @@
 package com.zheng.fishagent;
 
 import com.zheng.fishagent.agent.Agent;
+import com.zheng.fishagent.agent.Span;
 import com.zheng.fishagent.agent.ToolCallMode;
+import com.zheng.fishagent.agent.Tracer;
 import com.zheng.fishagent.agent.ReActAgent;
 import com.zheng.fishagent.core.FishAgentException;
 import com.zheng.fishagent.llm.ChatModel;
 import com.zheng.fishagent.llm.ollama.OllamaChatModel;
 import com.zheng.fishagent.memory.ChatMemory;
 import com.zheng.fishagent.memory.MessageWindowChatMemory;
+import com.zheng.fishagent.memory.lock.MemoryLock;
 import com.zheng.fishagent.tool.Tool;
 import com.zheng.fishagent.tool.ToolRegistry;
 
@@ -82,6 +85,8 @@ public final class FishAgent {
         private int maxIterations = 8;
         private int maxRepeatedToolCalls = 3;
         private Double temperature;
+        private Tracer tracer = Tracer.NOOP;
+        private MemoryLock memoryLock = MemoryLock.local();
 
         private Builder() {
         }
@@ -230,6 +235,33 @@ public final class FishAgent {
         }
 
         /**
+         * 链路追踪扩展点。缺省为 {@link Tracer#NOOP}（不追踪、零开销）。
+         * <p>
+         * 设置后，run、模型调用与工具执行会自动生成 span，监听器可用
+         * {@link Span#current()} 读取当前 traceId。
+         * 内置的 {@code SimpleTracer}（{@code com.zheng.fishagent.agent} 包）
+         * 提供基于 UUID 的轻量实现，可直接使用。
+         */
+        public Builder tracer(Tracer tracer) {
+            this.tracer = tracer;
+            return this;
+        }
+
+        /**
+         * 记忆的互斥实现。缺省为 {@link MemoryLock#local()}，仅在当前 JVM 内提供互斥。
+         * <p>
+         * 当同一份记忆会被<b>多个实例</b>并发访问时（例如多副本部署 + 共享会话），
+         * 需注入自行实现的跨进程 {@link MemoryLock}。框架不提供跨进程实现，也不依赖
+         * 任何分布式组件——由使用者按自己的基础设施选择。
+         * <p>
+         * 传入 {@code null} 时回退为默认本地实现。
+         */
+        public Builder memoryLock(MemoryLock memoryLock) {
+            this.memoryLock = memoryLock;
+            return this;
+        }
+
+        /**
          * 组装并返回 Agent。
          *
          * @throws FishAgentException 未指定任何模型时抛出
@@ -241,7 +273,9 @@ public final class FishAgent {
                     .mode(mode)
                     .streaming(streaming)
                     .maxIterations(maxIterations)
-                    .maxRepeatedToolCalls(maxRepeatedToolCalls);
+                    .maxRepeatedToolCalls(maxRepeatedToolCalls)
+                    .tracer(tracer)
+                    .memoryLock(memoryLock);
             if (memory != null) {
                 builder.memory(memory);
             }

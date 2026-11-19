@@ -14,6 +14,9 @@ Fish-Agent 让你用几行代码把大模型变成能**调用工具、记住上�
 - **记忆系统**：内存记忆、滑动窗口裁剪、JSONL 文件持久化，可自由组合。
 - **流式输出**：SSE/NDJSON 逐 token 回调，文本模式下带「最终答案门控」，不会泄露中间推理。
 - **健壮性**：迭代轮数上限、重复调用判死循环、工具异常转为错误文本自愈、参数名容错。
+- **可替换的记忆锁**：所有记忆的并发保护经由 `MemoryLock` 接口；默认本地实现零配置可用，多实例场景自行注入跨进程实现（框架不依赖任何分布式组件）。
+- **上下文摘要压缩**：长对话超过阈值时自动把早期消息压成摘要，早期信息不再硬丢失；摘要失败自动退化为窗口裁剪，原文始终可查。
+- **可观测**：`Tracer` / `Span` 扩展点，在 run、模型调用、工具执行三处自动埋点；默认零开销，可在监听器里直接读到 traceId。
 - **JPMS 友好**：`Automatic-Module-Name: com.zheng.fishagent`。
 
 ## 环境要求
@@ -172,6 +175,116 @@ ChatMemory file2 = FileChatMemory.of("session-1", Path.of("data")); // 自定义
 FishAgent.builder().ollama("qwen2.5:7b").session("user-42", 30).build();
 ```
 
+### 上下文摘要压缩（SummarizingChatMemory）
+
+窗口裁剪的缺陷是**早期信息硬丢失**——窗口一滑，此前的结论、约定和事实就不再进入模型视野，模型会「忘记」已经达成共识的事。
+
+`SummarizingChatMemory` 用**摘要**替代**丢弃**：累积的消息超过阈值时，把早期消息交给模型压成一条摘要，此后参与上下文的变成「摘要 + 最近若干条原文」。
+
+```java
+import com.zheng.fishagent.memory.SummarizingChatMemory;
+
+ChatMemory memory = SummarizingChatMemory.of(
+        MessageWindowChatMemory.of("user-42", 100),   // 底层保存原文
+        summarizeModel,                                // 用于生成摘要的模型
+        20,                                            // 超过 20 条未摘要消息时触发
+        5);                                            // 保留最近 5 条原文
+
+Agent agent = FishAgent.builder()
+        .ollama("qwen2.5:7b")
+        .memory(memory)
+        .build();
+```
+
+**产出形态**：
+
+```
+[摘要（USER 角色，带固定前缀）] [最近第 1 条] [最近第 2 条] ... [最新一条]
+```
+
+**三个要点**：
+
+1. **同步触发**。压缩发生在 `add()` 时，框架不创建线程（符合「框架不做内部同步、不创建线程」的约束）。代价是**每跨过一次阈值，该次 `add()` 会多出一次模型调用**（数秒）——触发频率低，通常可接受。
+2. **链式累积**。再次压缩时，上一次的摘要会并入输入，避免二次压缩把早期信息压掉。
+3. **失败退化**。摘要模型抛异常或返回空白时**不会中断对话**，而是退化为「只保留最近 N 条」，即窗口语义。可通过 `lastCompactionSucceeded()` 观察是否发生了降级。
+
+**原文永不丢失**：压缩只改变 `messages()` 的返回结果，全部原始消息可通过 `fullHistory()` 读取。注意**摘要是不可逆的有损操作**——细节会丢失，需要精确回溯时应读取原文。
+
+**参数约束**：`keepMessages` 必须小于 `triggerMessages`，否则会出现「刚压缩完立即又触发」的抖动。构造时会校验并快速失败。
+
+**关于摘要模型**：可以传入一个与主对话不同的（通常更轻量的）模型，摘要任务对模型能力要求不高。
+
+**与窗口装饰器组合**：推荐「外层摘要、内层窗口」——底层窗口放宽（如 100 条）用于保存原文，外层摘要负责控制实际进入上下文的内容量。
+
+> 行为契约见 `openspec/specs/context-summarization/spec.md`。
+
+### 并发保护（MemoryLock）
+
+框架内所有记忆的并发保护都经由 `MemoryLock` 接口，记忆实现自身不再使用 `synchronized`。默认实现是 `MemoryLock.local()`（基于 `ReentrantLock`），**仅在当前 JVM 内**提供互斥。
+
+**单机部署**：无需任何配置，开箱可用。
+
+**多实例部署**：同一个会话会被负载均衡分发到不同节点，此时本地锁无法防止并发写入导致的消息丢失。需要自行实现 `MemoryLock` 并注入：
+
+```java
+import com.zheng.fishagent.memory.lock.MemoryLock;
+import java.time.Duration;
+
+public class MyRedisLock implements MemoryLock {
+
+    private final RedissonClient client;          // 复用应用已有的客户端
+
+    public MyRedisLock(RedissonClient client) {
+        this.client = client;
+    }
+
+    @Override
+    public boolean isDistributed() {
+        return true;                              // 声明「跨进程有效」
+    }
+
+    @Override
+    public <T> T execute(String resource, Duration timeout, Supplier<T> action) {
+        RLock lock = client.getLock("fish-agent:memory:" + resource);
+        boolean acquired = lock.tryLock(timeout.toMillis(), 30_000, TimeUnit.MILLISECONDS);
+        if (!acquired) {
+            throw FishAgentException.of("获取记忆锁超时：%s", resource);
+        }
+        try {
+            return action.get();
+        } finally {
+            lock.unlock();
+        }
+    }
+}
+```
+
+然后注入：
+
+```java
+Agent agent = FishAgent.builder()
+        .ollama("qwen2.5:7b")
+        .session("user-42")
+        .memoryLock(new MyRedisLock(redissonClient))
+        .build();
+```
+
+**关于 `isDistributed()`**：它由实现自行声明，框架不做校验。请如实返回——返回 `false` 表示只在当前进程内互斥，多实例场景下不安全。业务侧可以在启动时据此判断：
+
+```java
+if (!memoryLock.isDistributed() && isMultiInstanceDeployment) {
+    log.warn("当前使用非分布式记忆锁，多实例部署下同一会话可能被并发修改");
+}
+```
+
+**给实现者的三条注意事项**：
+
+1. **不要自建客户端**。Redisson / Jedis 实例应由应用统一持有并注入，避免连接池重复；版本也由应用决定，不会与框架冲突（框架不依赖任何分布式组件）。
+2. **租约必须覆盖临界区**。若使用带 `leaseTime` 的锁，该值必须大于单次记忆操作的最大耗时，否则锁可能在临界区执行中途失效——这比不加锁更危险。
+3. **公平锁没有显式租约**。Redisson 的 `getFairLock` 不支持 `leaseTime`，只能依赖看门狗续期，存在「JVM 长暂停导致续期失败」的窗口。需要严格排队时请评估这一点。
+
+`add` / `messages` / `clear` 各自进入一次临界区，因此**一次 run 会多次加解锁**。若你的跨进程锁 RTT 较高，可在自己的实现里做批处理优化。
+
 ---
 
 ## 流式与事件监听
@@ -196,12 +309,88 @@ AgentListener listener = new AgentListener() {
 AgentResult result = agent.run("帮我查一下东京的天气", listener);
 ```
 
+### 组合多个监听器
+
+需要同时做多件事时（如「控制台打印 + 审计日志 + 埋点统计」），不必把逻辑全塞进一个实现里——用 `CompositeAgentListener` 把任意多个 `AgentListener` 合成一个，事件会按传入顺序依次转发：
+
+```java
+import com.zheng.fishagent.agent.CompositeAgentListener;
+
+// 监听器 1：流式打印到控制台
+AgentListener consoleListener = new AgentListener() {
+    @Override public void onToken(String token) {
+        System.out.print(token);
+    }
+};
+
+// 监听器 2：记录工具调用的审计日志
+AgentListener auditListener = new AgentListener() {
+    @Override public void onToolCall(ToolCall call) {
+        auditLog.info("调用工具 {}，参数 {}", call.name(), call.arguments());
+    }
+    @Override public void onToolResult(ToolCall call, String result) {
+        auditLog.info("工具 {} 返回 {}", call.name(), result);
+    }
+};
+
+// 合成一个：两个监听器都会收到全部事件
+AgentListener listeners = new CompositeAgentListener(consoleListener, auditListener);
+
+AgentResult result = agent.run("帮我查一下东京的天气", listeners);
+```
+
+要点：
+
+- **按序转发**：先注册的先收到事件；传入的 `null` 元素会被忽略。
+- **可嵌套**：`CompositeAgentListener` 本身也是 `AgentListener`，可以再被组合，形成树状结构（如按业务分组）。
+- **异常不隔离**：任一监听器抛异常会中断本次转发并向上抛出，排在其后的监听器收不到该事件；需要「一个坏监听器不影响其他」时，请在各实现内部自行 `try/catch`。
+- **不可变**：构造时对传入集合做防御性拷贝，之后再修改原集合不影响已组合的实例。
+
 要单独使用底层模型流式接口时：
 
 ```java
 ChatModel model = FishAgent.ollamaModel("qwen2.5:7b");
 model.stream(request, token -> System.out.print(token)); // StreamListener 是函数式接口
 ```
+
+---
+
+## 可观测性（链路追踪）
+
+框架在三个结构边界自动埋点：一次 `run`、一次模型调用、一次工具执行。**默认零开销**——不配置时全部是空实现，不生成 ID、不压栈。
+
+```java
+import com.zheng.fishagent.agent.SimpleTracer;
+import com.zheng.fishagent.agent.Span;
+import com.zheng.fishagent.message.ToolCall;
+
+Agent agent = FishAgent.builder()
+        .ollama("qwen2.5:7b")
+        .tracer(SimpleTracer.create())      // 每次 run 一个新 traceId
+        .build();
+
+AgentListener listener = new AgentListener() {
+    @Override public void onToolCall(ToolCall call) {
+        // 无需传参，直接读当前 span
+        Span span = Span.current();
+        System.out.println("[" + span.traceId() + "] 调用工具 " + call.name());
+    }
+};
+
+agent.run("北京现在几点？", listener);
+```
+
+要点：
+
+- **三个 span 边界**：`agent.run` → `model.call` → `tool.execute`，层层嵌套；`tool.execute` 会自动带上 `tool` 属性。
+- **ID 层级**：一次逻辑请求内所有 span 共享 `traceId()`；子 span 的 `parentSpanId()` 指向父 span 的 `spanId()`；根 span 的 `parentSpanId()` 为 `null`。
+- **`Span.current()`**：框架内部不创建线程，`run` 与回调始终在同一线程上，因此回调里读到的必然是本次运行的 span。若你在回调中自行切换线程，需要把 span 作为值显式带过去。
+- **traceId 粒度**：`SimpleTracer.create()` 每次 run 新生成；`SimpleTracer.create("trace-abc")` 用固定值，让跨多次 run 的同一逻辑请求归入同一条链路（空白值会退化为随机生成）。
+- **自定义实现**：实现 `Tracer` 接口并注入即可接入日志或 OpenTelemetry。`Tracer` 只管按 `parent` 算 ID 并返回 span，**不要**自己维护「当前 span」——压栈出栈由框架统一管理。
+- **栈的清理**：栈空时线程本地变量会被移除，线程池复用时不会残留上一次的上下文。
+- **默认关闭**：不调用 `.tracer(...)` 时 `Tracer.NOOP` 生效，`Span.current()` 恒返回 `Span.NOOP`（`traceId()` / `spanId()` 为空串）。
+
+> 行为契约见 `openspec/specs/observability-tracing/spec.md`。
 
 ---
 
@@ -234,13 +423,33 @@ System.out.println("轮数=" + result.iterations() + "，tokens=" + result.usage
 import com.zheng.fishagent.llm.*;
 
 public class MyChatModel implements ChatModel {
-    @Override public ChatResponse chat(ChatRequest request) { /* ... */ }
-    @Override public ChatResponse stream(ChatRequest request, StreamListener listener) { /* ... */ }
-    @Override public String name() { return "my-model"; }
+
+    /** 同步（阻塞）调用。 */
+    @Override
+    public ChatResponse call(ChatRequest request) {
+        // 把 request.messages() / request.tools() 转成厂商格式，发请求，再转回 ChatResponse
+        return new ChatResponse(Message.assistant("回答"), TokenUsage.EMPTY, "stop");
+    }
+
+    /** 流式调用：逐段回调 onToken，返回聚合后的完整响应（含工具调用）。 */
+    @Override
+    public ChatResponse stream(ChatRequest request, StreamListener listener) {
+        ChatResponse response = call(request);
+        listener.onToken(response.text());
+        return response;
+    }
+
+    /** 模型标识，用于日志与元信息展示；不覆写则默认取类名。 */
+    @Override
+    public String modelName() {
+        return "my-model";
+    }
 }
 
 Agent agent = FishAgent.builder().model(new MyChatModel()).build();
 ```
+
+`ChatRequest` 是不可变对象，用 `ChatRequest.builder()` 构建；其中 `messages()` 已按「系统提示词 → 历史消息」排好序，`tools()` 在原生模式下携带结构化 Schema、在文本模式下为空。`ChatResponse` 是 record，字段为 `message` / `usage` / `finishReason`。
 
 ---
 
@@ -272,11 +481,39 @@ src/main/java/com/zheng/fishagent/
 │   └── ollama/ OllamaChatModel
 ├── tool/       Tool / ToolSpec / FunctionTool / MethodTool / ToolRegistry / ToolSchemaGenerator
 │   └── annotation/ @AgentTool / @ToolParam
-├── memory/     ChatMemory / InMemory / MessageWindow / FileChatMemory
+├── memory/     ChatMemory / InMemory / MessageWindow / FileChatMemory / SummarizingChatMemory
+│   │           LockedChatMemory
+│   └── lock/   MemoryLock / LocalMemoryLock
 ├── prompt/     ReActPrompt / ReActOutputParser / ReActStep
-├── agent/      Agent / ReActAgent / ToolCallMode / AgentListener / AgentResult
+├── agent/      Agent / ReActAgent / ToolCallMode / AgentResult
+│               AgentListener / CompositeAgentListener
+│               Tracer / Span / Spans / SimpleTracer
 └── example/    ConsoleChat / DemoTools / Calculator
 ```
+
+## 规范与变更流程
+
+本项目的**行为契约**记录在 `openspec/` 下，而非仅存在于代码里：
+
+```
+openspec/
+├── project.md      项目定位、技术栈、约定
+├── specs/          已实现能力的正式规范（12 份，基线）
+└── changes/        进行中的变更提案
+    └── archive/    已归档的变更
+```
+
+规范用 Requirement + Scenario 描述「系统应该做什么」，每份对应一个能力（如 `agent-execution`、`tool-registry`、`conversation-memory`）。改动行为前先读对应规范，改完行为要同步更新规范。
+
+```powershell
+openspec list --specs                    # 查看现有能力规范
+openspec show agent-execution --type spec # 查看某份规范
+openspec new change <name>               # 新建变更提案
+openspec validate --all                  # 校验提案与规范
+openspec archive <name>                  # 完成后归档，规范并入 openspec/specs/
+```
+
+需要 OpenSpec CLI：`npm install -g @fission-ai/openspec`。
 
 ## 构建与发布
 

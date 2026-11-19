@@ -6,20 +6,21 @@ import com.zheng.fishagent.llm.ChatResponse;
 import com.zheng.fishagent.llm.StreamListener;
 import com.zheng.fishagent.llm.TokenUsage;
 import com.zheng.fishagent.memory.ChatMemory;
+import com.zheng.fishagent.memory.ChatMemoryView;
 import com.zheng.fishagent.memory.InMemoryChatMemory;
-import com.zheng.fishagent.message.Message;
+import com.zheng.fishagent.memory.LockedChatMemory;
+import com.zheng.fishagent.memory.lock.MemoryLock;
+import com.zheng.fishagent.message.message.AssistantMessage;
+import com.zheng.fishagent.message.message.Message;
 import com.zheng.fishagent.message.ToolCall;
+import com.zheng.fishagent.message.message.UserMessage;
 import com.zheng.fishagent.prompt.ReActOutputParser;
 import com.zheng.fishagent.prompt.ReActPrompt;
 import com.zheng.fishagent.prompt.ReActStep;
 import com.zheng.fishagent.tool.Tool;
 import com.zheng.fishagent.tool.ToolRegistry;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -56,6 +57,9 @@ import java.util.regex.Pattern;
  * 本类是<b>有状态</b>的：会话记忆（{@link ChatMemory}）绑定在实例上，而 {@link #run} 会读写它。
  * 因此<b>同一个实例不应被多个线程并发调用</b>。需要并发时，请为每个会话创建独立的 Agent 实例，
  * 或由调用方自行加锁。框架内部不创建任何线程，也不做同步。
+ * <p>
+ * 状态还包括<b>工具集快照</b>：系统提示词在首次使用后即冻结（见 {@link #cachedSystemPrompt}），
+ * 因此所有工具须在首次 {@link #run} 之前注册完毕。
  */
 public final class ReActAgent implements Agent {
 
@@ -72,6 +76,11 @@ public final class ReActAgent implements Agent {
      * 每轮的用户输入、助手输出、工具结果都会写入这里，下一轮再取回拼进上下文。
      */
     private final ChatMemory memory;
+
+    /**
+     * 会话记忆视图
+     */
+    private final ChatMemoryView memoryView;
 
     /** 用户追加的行为准则，会与内置的 ReAct 格式说明拼接。 */
     private final String instructions;
@@ -95,11 +104,29 @@ public final class ReActAgent implements Agent {
     private final ToolCallMode mode;
 
     /**
+     * 链路追踪扩展点。默认 {@link Tracer#NOOP}，即不追踪、零开销。
+     * <p>
+     * 它只在固定的结构边界（{@code agent.run} / {@code model.call} / {@code tool.execute}）
+     * 上被调用；生成的 ID 通过 {@link Span#current()} 暴露给 {@link AgentListener}，
+     * 因此监听器无需任何传参即可读到本次 run 的 traceId。
+     */
+    private final Tracer tracer;
+
+    /**
      * 系统提示词缓存。
      * <p>
      * 提示词依赖「已注册的工具列表」，而工具可能在构建之后才注册，因此<b>延迟到首次使用时计算</b>，
      * 算一次后缓存。声明为 {@code volatile} 是为了让多个线程读到的是同一份已发布对象，
      * 避免撕裂；计算过程本身可能重复执行，但结果幂等，可接受。
+     * <p>
+     * <b>快照语义（重要）</b>：缓存一经写入<b>不再失效</b>，即系统提示词定格为「首次使用时的工具集」。
+     * 因此<b>所有工具必须在首次 {@link #run} 之前注册完毕</b>。此后新增的工具不会进入提示词：
+     * <ul>
+     *   <li>{@link ToolCallMode#REACT_TEXT}：提示词承载完整工具清单，新工具对模型<b>完全不可见</b>；</li>
+     *   <li>{@link ToolCallMode#NATIVE_TOOLS}：若首次计算时工具集为空，提示词会一直停留在
+     *       「没有可用工具」分支，模型可能忽略请求体 {@code tools} 字段中已下发的工具。</li>
+     * </ul>
+     * 若确需运行期变更工具集，应改为「版本化缓存」（按工具集的变更版本重算提示词），而非复用本缓存。
      */
     private volatile String cachedSystemPrompt;
 
@@ -108,7 +135,13 @@ public final class ReActAgent implements Agent {
         this.model = Objects.requireNonNull(builder.model, "model 不能为空");
         // 以下三项均为可选，缺省时回退到安全默认值，避免调用方做空判断
         this.tools = builder.tools == null ? new ToolRegistry() : builder.tools;
-        this.memory = builder.memory == null ? new InMemoryChatMemory() : builder.memory;
+        // 记忆统一经锁装饰器访问：未配置锁时回退 MemoryLock.local()（等价于原先的 synchronized），
+        // 需要跨实例互斥时由调用方注入自定义实现。已是 LockedChatMemory 时不重复包裹
+        MemoryLock lock = builder.memoryLock == null ? MemoryLock.local() : builder.memoryLock;
+        this.memory = LockedChatMemory.wrap(
+                builder.memory == null ? new InMemoryChatMemory() : builder.memory, lock);
+        //会话记忆的视图，包括摘要提示词，工具等
+        this.memoryView = builder.memoryView;
         this.instructions = builder.instructions;
         this.systemPromptOverride = builder.systemPromptOverride;
         // 轮数下限为 1：至少允许一次模型调用，否则 run 会直接空转退出
@@ -117,6 +150,8 @@ public final class ReActAgent implements Agent {
         this.temperature = builder.temperature;
         this.streaming = builder.streaming;
         this.mode = builder.mode;
+        this.tracer = builder.tracer == null ? Tracer.NOOP : builder.tracer;
+
     }
 
     public static Builder builder() {
@@ -139,6 +174,8 @@ public final class ReActAgent implements Agent {
     public ChatMemory memory() {
         return memory;
     }
+
+    public ChatMemoryView memoryView() {return memoryView;}
 
     @Override
     public List<Tool> tools() {
@@ -178,6 +215,9 @@ public final class ReActAgent implements Agent {
      * 执行一轮完整对话（内部可能包含多次模型调用），并返回本次运行的汇总结果。
      * <p>
      * 副作用：会向 {@link #memory} 写入用户输入、助手消息与工具结果。因此本方法<b>不是线程安全</b>的。
+     * <p>
+     * 本方法在 {@code agent.run} span 内执行；若配置了 {@link Tracer}，监听器回调中可通过
+     * {@link Span#current()} 读到本次运行的追踪标识。
      *
      * @param userInput 用户输入；为 null 或空白时不会写入记忆（此时相当于让模型接着现有上下文继续）
      * @param listener  过程事件回调；允许为 null，内部会替换为空实现
@@ -188,19 +228,37 @@ public final class ReActAgent implements Agent {
     public AgentResult run(String userInput, AgentListener listener) {
         // 空对象模式：调用方不必做 null 判断，循环里可以无脑回调
         AgentListener callback = listener == null ? AgentListener.NOOP : listener;
+        // 开启本次 run 的顶层 span（未启用追踪时为零开销的 NOOP）；
+        // finally 保证异常路径也会关闭，避免当前线程的环境上下文泄漏
+        Span runSpan = Spans.open(tracer, "agent.run");
+        try {
+            return doRun(userInput, callback);
+        } finally {
+            Spans.close(runSpan);
+        }
+    }
+
+    /**
+     * {@link #run(String, AgentListener)} 的实际执行体，被包在 {@code agent.run} span 之内。
+     * 拆成独立方法只是为了让「span 的开合」与「run 的逻辑」在源码里一眼可见。
+     */
+    private AgentResult doRun(String userInput, AgentListener callback) {
         callback.onStart(userInput);
         // 先落用户输入再进循环，保证构建请求时上下文是完整的
         if (userInput != null && !userInput.isBlank()) {
-            memory.add(Message.user(userInput));
+            memoryView.add(new UserMessage(userInput));
         }
 
         // ---- 循环状态：全部为局部变量，天然隔离多次 run 之间的相互影响 ----
         // 用量累加器（不可变，每次 plus 生成新对象）
         TokenUsage usage = TokenUsage.EMPTY;
         // 工具调用计数：key 为「工具名|参数」签名，用于识别死循环
-        Map<String, Integer> callCounts = new LinkedHashMap<>();
+        Map<String, Integer> callCounts = new HashMap<>();
+        //现在的调用次数
         int iteration = 0;
+        //最终答案文本
         String lastText = "";
+        //结束原因
         String stopReason = AgentResult.STOP;
 
         try {
@@ -218,7 +276,7 @@ public final class ReActAgent implements Agent {
 
                 // 3a) 没有工具调用 ⇒ 这就是最终答案，正常收工
                 if (calls.isEmpty()) {
-                    memory.add(assistant);
+                    memoryView.add(assistant);
                     callback.onMessage(assistant);
                     lastText = finalText(assistant);
                     // 优先透传模型自带的结束原因（如 length），缺失时归为 stop
@@ -240,7 +298,7 @@ public final class ReActAgent implements Agent {
 
                 // 助手消息（含 tool_calls）必须先于工具结果写入，
                 // 否则下一轮上下文里会出现「结果在前面、调用在后面」的非法时序
-                memory.add(assistant);
+                memoryView.add(assistant);
                 callback.onMessage(assistant);
 
                 boolean loopDetected = false;
@@ -261,11 +319,11 @@ public final class ReActAgent implements Agent {
                                 + " 次，请停止重复调用，直接基于已有信息给出 Final Answer。";
                     } else {
                         // 工具内部异常已被 ToolRegistry 兜住并转成错误文本，不会中断循环
-                        result = tools.execute(normalized);
+                        result = executeTool(normalized);
                     }
                     callback.onToolResult(normalized, result);
                     // 工具结果的角色/包装形式由模式决定，见 observation()
-                    memory.add(observation(normalized, result));
+                    memoryView.add(observation(normalized, result));
                 }
 
                 // 3c) 判定死循环 ⇒ 提前终止，标记为未成功
@@ -291,16 +349,37 @@ public final class ReActAgent implements Agent {
      * 发起一次模型调用，按需选择同步或流式，并为不同模式挂上不同的流式监听器。
      */
     private ChatResponse invoke(AgentListener callback) {
-        ChatRequest request = buildRequest();
-        if (!streaming) {
-            return model.call(request);
+        Span span = Spans.open(tracer, "model.call");
+        try {
+            ChatRequest request = buildRequest();
+            if (!streaming) {
+                return model.call(request);
+            }
+            // 原生模式下正文即最终答案，可以原样转发；
+            // 文本模式下正文混杂着 Thought/Action，必须门控后才允许下发。
+            StreamListener streamListener = mode == ToolCallMode.NATIVE_TOOLS
+                    ? tokenForwarder(callback)
+                    : new FinalAnswerGate(callback);
+            return model.stream(request, streamListener);
+        } finally {
+            Spans.close(span);
         }
-        // 原生模式下正文即最终答案，可以原样转发；
-        // 文本模式下正文混杂着 Thought/Action，必须门控后才允许下发。
-        StreamListener streamListener = mode == ToolCallMode.NATIVE_TOOLS
-                ? tokenForwarder(callback)
-                : new FinalAnswerGate(callback);
-        return model.stream(request, streamListener);
+    }
+
+    /**
+     * 执行一次工具调用，并包在 {@code tool.execute} span 内，把工具名记为属性。
+     * <p>
+     * 与 {@link com.zheng.fishagent.tool.ToolRegistry#execute} 的唯一区别就是这层埋点，
+     * 因此单列出来，让 span 的边界正好落在「一次工具执行」上。
+     */
+    private String executeTool(ToolCall call) {
+        Span span = Spans.open(tracer, "tool.execute");
+        try {
+            span.attribute("tool", call.name());
+            return tools.execute(call);
+        } finally {
+            Spans.close(span);
+        }
     }
 
     /**
@@ -313,7 +392,7 @@ public final class ReActAgent implements Agent {
     private ChatRequest buildRequest() {
         List<Message> context = new ArrayList<>();
         context.add(Message.system(systemPrompt()));
-        context.addAll(memory.messages());
+        context.addAll(memoryView.messages());
 
         return ChatRequest.builder()
                 .messages(context)
@@ -332,7 +411,7 @@ public final class ReActAgent implements Agent {
      */
     private List<ToolCall> resolveToolCalls(Message assistant) {
         if (mode == ToolCallMode.NATIVE_TOOLS) {
-            return assistant.toolCalls();
+            return AssistantMessage.toolCalls(assistant);
         }
         ReActStep step = ReActOutputParser.parse(assistant.content());
         if (step instanceof ReActStep.ToolRequest request) {
@@ -365,7 +444,7 @@ public final class ReActAgent implements Agent {
                                TokenUsage usage, String stopReason, boolean success) {
         // AgentResult 内部会对 messages 做 List.copyOf，得到不可变快照，
         // 因此返回值不会随后续 run 修改记忆而发生变化
-        AgentResult result = new AgentResult(text, memory.messages(), iterations, usage, stopReason, success);
+        AgentResult result = new AgentResult(text, memoryView.messages(), iterations, usage, stopReason, success);
         callback.onFinish(result);
         return result;
     }
@@ -397,7 +476,7 @@ public final class ReActAgent implements Agent {
      * 并非合格的答案。因此只作为最后手段，并配合 {@code success = false} 让调用方自行判断。
      */
     private String fallbackText() {
-        List<Message> messages = memory.messages();
+        List<Message> messages = memoryView.messages();
         for (int i = messages.size() - 1; i >= 0; i--) {
             Message message = messages.get(i);
             if (message.role() == com.zheng.fishagent.message.Role.ASSISTANT && !message.content().isBlank()) {
@@ -523,14 +602,16 @@ public final class ReActAgent implements Agent {
     /**
      * {@link ReActAgent} 的构建器。
      * <p>
-     * 所有字段都有安全默认值，最小可用配置是「只设置 model」。
-     * 默认采用 {@link ToolCallMode#NATIVE_TOOLS} + 流式输出。
+     * <b>必填项只有 {@link #model(ChatModel)}</b>，未设置时 {@link #build()} 会快速失败。
+     * 其余字段都有安全默认值：{@link ToolCallMode#NATIVE_TOOLS} 模式、流式输出、
+     * 不限轮数的工具集、进程内记忆与 {@link Tracer#NOOP} 追踪。
      */
     public static final class Builder {
 
         private ChatModel model;
         private ToolRegistry tools;
         private ChatMemory memory;
+        private MemoryLock memoryLock = MemoryLock.local();
         private String instructions = ReActPrompt.DEFAULT_INSTRUCTIONS;
         private String systemPromptOverride;
         private int maxIterations = 8;
@@ -538,7 +619,9 @@ public final class ReActAgent implements Agent {
         private Double temperature;
         private boolean streaming = true;
         private ToolCallMode mode = ToolCallMode.NATIVE_TOOLS;
+        private Tracer tracer = Tracer.NOOP;
 
+        private ChatMemoryView memoryView;
         private Builder() {
         }
 
@@ -555,6 +638,21 @@ public final class ReActAgent implements Agent {
 
         public Builder memory(ChatMemory memory) {
             this.memory = memory;
+            return this;
+        }
+
+        /**
+         * 记忆的互斥实现。缺省为 {@link MemoryLock#local()}，仅在当前 JVM 内提供互斥。
+         * <p>
+         * 当同一份记忆会被<b>多个实例</b>并发访问时，需注入自行实现的跨进程
+         * {@link MemoryLock}；否则并发写入可能导致消息丢失或顺序错乱。
+         * 传入 {@code null} 时回退为默认本地实现。
+         * <p>
+         * 该锁会被 {@link LockedChatMemory} 用于包裹 {@link #memory(ChatMemory)} 配置的记忆；
+         * 若传入的记忆本身已是 {@code LockedChatMemory}，则不再重复包裹。
+         */
+        public Builder memoryLock(MemoryLock memoryLock) {
+            this.memoryLock = memoryLock;
             return this;
         }
 
@@ -605,6 +703,21 @@ public final class ReActAgent implements Agent {
             return this;
         }
 
+        /**
+         * 链路追踪扩展点。缺省为 {@link Tracer#NOOP}（不追踪、零开销）。
+         * <p>
+         * 设置后，{@code run} / 模型调用 / 工具执行会自动生成 span，
+         * 监听器与业务代码可用 {@link Span#current()} 读取当前 ID。
+         */
+        public Builder tracer(Tracer tracer) {
+            this.tracer = tracer;
+            return this;
+        }
+
+        public Builder memoryView(ChatMemoryView memoryView) {
+            this.memoryView = memoryView;
+            return this;
+        }
         public ReActAgent build() {
             return new ReActAgent(this);
         }

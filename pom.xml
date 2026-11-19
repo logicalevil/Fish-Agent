@@ -78,8 +78,12 @@
                 <version>3.13.0</version>
                 <configuration>
                     <release>${maven.compiler.release}</release>
+                    <!-- 源码为 UTF-8，显式声明以避免在 GBK 默认环境下中文乱码 -->
+                    <encoding>UTF-8</encoding>
                     <compilerArgs>
                         <arg>-parameters</arg>
+                        <arg>-encoding</arg>
+                        <arg>UTF-8</arg>
                     </compilerArgs>
                 </configuration>
             </plugin>
@@ -130,6 +134,18 @@
                     <encoding>UTF-8</encoding>
                     <charset>UTF-8</charset>
                     <docencoding>UTF-8</docencoding>
+                    <!--
+                        背景：Windows 上若 JAVA_TOOL_OPTIONS 设置了 -Dfile.encoding=GBK（IDEA 常见配置），
+                        fork 出的 javadoc 子进程会以 GBK 解码 UTF-8 源码，产生大批
+                        "unmappable character" 报错。
+
+                        为什么用 additionalJOption 而不是 additionalOptions：
+                          - additionalOptions 会被写入 @options 参数文件（XML 格式），
+                            javadoc 不读取其中的 -encoding，参数等于丢失；
+                          - additionalJOption 生成 -J 前缀的 JVM 参数，直接出现在命令行，
+                            -Dfile.encoding 会覆盖环境变量 JAVA_TOOL_OPTIONS，从而根治该问题。
+                    -->
+                    <additionalJOption>-J-Dfile.encoding=UTF-8</additionalJOption>
                     <doclint>none</doclint>
                     <quiet>true</quiet>
                 </configuration>

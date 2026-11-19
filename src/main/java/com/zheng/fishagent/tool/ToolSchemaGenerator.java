@@ -62,6 +62,19 @@ public final class ToolSchemaGenerator {
 
     /**
      * 生成单个类型对应的 Schema。
+     * <p>
+     * 映射规则：
+     * <ul>
+     *   <li>字符串类 / 字符 → {@code string}</li>
+     *   <li>布尔 → {@code boolean}</li>
+     *   <li>整型（含 BigInteger）→ {@code integer}</li>
+     *   <li>浮点（含 BigDecimal）→ {@code number}</li>
+     *   <li>枚举 → {@code string} + {@code enum} 取值列表</li>
+     *   <li>数组 / 集合 → {@code array}，元素类型递归生成</li>
+     *   <li>Map → {@code object}</li>
+     *   <li>record → {@code object}，所有组件均为必填</li>
+     *   <li>其它类型 → {@code object}（无属性），由 {@link #convert} 在运行时尝试转换</li>
+     * </ul>
      */
     public static Map<String, Object> forType(Type type) {
         Map<String, Object> schema = new LinkedHashMap<>();
@@ -135,6 +148,11 @@ public final class ToolSchemaGenerator {
 
     /**
      * 把模型返回的原始值转换成目标类型。
+     * <p>
+     * 容错要点：数字以字符串形式返回、布尔以字符串表示、枚举大小写不一致等情况都能处理；
+     * 值为 {@code null} 时按目标类型返回默认值（包装类型返回 {@code null}，基本类型返回零值）。
+     *
+     * @throws FishAgentException 值无法转换为目标类型（如非法枚举名、非数字字符串）
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static Object convert(Object value, Class<?> targetType) {
