@@ -16,6 +16,7 @@ import java.util.List;
  * @param success    是否正常得到最终回答
  */
 public record AgentResult(
+
         String text,
         List<Message> messages,
         int iterations,

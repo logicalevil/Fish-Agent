@@ -3,6 +3,7 @@ package com.zheng.fishagent.agent;
 import com.zheng.fishagent.llm.ChatResponse;
 import com.zheng.fishagent.memory.InMemoryChatMemory;
 import com.zheng.fishagent.message.message.Message;
+import com.zheng.fishagent.message.message.ToolMessage;
 import com.zheng.fishagent.message.Role;
 import com.zheng.fishagent.message.ToolCall;
 import com.zheng.fishagent.tool.ToolRegistry;
@@ -51,7 +52,7 @@ class ReActAgentTest {
         List<Message> secondRound = model.requests().get(1).messages();
         Message toolMessage = secondRound.getLast();
         assertEquals(Role.TOOL, toolMessage.role());
-        assertEquals("multiply", toolMessage.toolName());
+        assertEquals("multiply", ((ToolMessage) toolMessage).toolName());
         assertEquals("42", toolMessage.content());
 
         // 记忆里应有 user / assistant(toolCall) / tool / assistant 四条

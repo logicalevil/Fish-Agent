@@ -1,5 +1,6 @@
 package com.zheng.fishagent.llm;
 
+import com.zheng.fishagent.message.message.AssistantMessage;
 import com.zheng.fishagent.message.message.Message;
 
 /**
@@ -9,19 +10,19 @@ import com.zheng.fishagent.message.message.Message;
  * @param usage        token 用量
  * @param finishReason 结束原因，如 stop / length / max_iterations
  */
-public record ChatResponse(Message message, TokenUsage usage, String finishReason) {
+public record ChatResponse(AssistantMessage message, TokenUsage usage, String finishReason) {
 
     /**
      * 缺省结束原因的便捷构造，等价于 {@code finishReason = "stop"}。
      */
-    public ChatResponse(Message message, TokenUsage usage) {
+    public ChatResponse(AssistantMessage message, TokenUsage usage) {
         this(message, usage, "stop");
     }
 
     /**
      * 以「零用量 + stop」构造一个仅含消息的响应。
      */
-    public static ChatResponse of(Message message) {
+    public static ChatResponse of(AssistantMessage message) {
         return new ChatResponse(message, TokenUsage.EMPTY, "stop");
     }
 
@@ -31,6 +32,7 @@ public record ChatResponse(Message message, TokenUsage usage, String finishReaso
     public String text() {
         return message == null ? "" : message.content();
     }
+
 
     /**
      * 本次响应是否请求了至少一个工具调用。

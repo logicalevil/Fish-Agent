@@ -2,18 +2,17 @@ package com.zheng.fishagent.message.content;
 
 import com.zheng.fishagent.message.source.MediaSource;
 
+/**
+ * 图片内容块。
+ */
 public final class ImageContent extends MediaContent {
-    private final MediaSource mediaSource;
 
     public ImageContent(MediaSource mediaSource) {
-        this.mediaSource = mediaSource;
-    }
-    public MediaSource getMediaSource() {
-        return mediaSource;
+        super(mediaSource);
     }
 
     @Override
-    public String text() {
-        return "";
+    public String type() {
+        return ContentKeys.TYPE_IMAGE;
     }
 }

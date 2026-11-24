@@ -4,10 +4,11 @@ import com.zheng.fishagent.message.Role;
 import com.zheng.fishagent.message.content.Content;
 
 import java.util.List;
+import java.util.Map;
 
 public final class UserMessage extends BaseMessage {
 
-    UserMessage(List<Content> contents) {
+    public UserMessage(List<Content> contents) {
         super(Role.USER, contents);
     }
 
@@ -17,11 +18,26 @@ public final class UserMessage extends BaseMessage {
      */
     @Override
     public String toString() {
-        return "UserMessage[contents=" + content() + "]";
+        return "UserMessage[contents=" + contentList() + "]";
     }
 
     @Override
-    public String content() {
+    public String allMessage() {
         return "";
+    }
+
+    /**
+     * 无子类特有字段，映射就是公共的 {@code role} 与 {@code content}。
+     */
+    @Override
+    public Map<String, Object> toMap() {
+        return super.toMap();
+    }
+
+    /**
+     * 从映射还原用户消息；无特有字段需要读取。
+     */
+    public static UserMessage fromMap(Map<String, Object> map) {
+        return new UserMessage(contentsOf(map));
     }
 }

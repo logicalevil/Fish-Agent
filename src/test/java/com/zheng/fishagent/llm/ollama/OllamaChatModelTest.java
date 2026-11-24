@@ -100,7 +100,7 @@ class OllamaChatModelTest {
                 .tools(List.of(multiplySpec()))
                 .build());
 
-        ToolCall call = response.message().toolCalls().getFirst();
+        ToolCall call = response.message().toolCallsCopyOnWrite().getFirst();
         assertEquals("multiply", call.name());
         assertEquals(6, ((Number) call.arguments().get("a")).intValue());
         assertEquals(31, response.usage().promptTokens());
@@ -136,7 +136,7 @@ class OllamaChatModelTest {
         assertEquals(List.of("你好", "，世界"), tokens);
         assertEquals("你好，世界", response.message().content());
 
-        ToolCall call = response.message().toolCalls().getFirst();
+        ToolCall call = response.message().toolCallsCopyOnWrite().getFirst();
         assertEquals("multiply", call.name());
         // Ollama 部分版本会把 arguments 序列化成 JSON 字符串，需要兼容
         assertEquals(2, ((Number) call.arguments().get("a")).intValue());

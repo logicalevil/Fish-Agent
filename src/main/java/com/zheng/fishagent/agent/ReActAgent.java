@@ -10,19 +10,20 @@ import com.zheng.fishagent.memory.ChatMemoryView;
 import com.zheng.fishagent.memory.InMemoryChatMemory;
 import com.zheng.fishagent.memory.LockedChatMemory;
 import com.zheng.fishagent.memory.lock.MemoryLock;
-import com.zheng.fishagent.message.message.AssistantMessage;
-import com.zheng.fishagent.message.message.Message;
+import com.zheng.fishagent.message.Role;
+import com.zheng.fishagent.message.content.TextContent;
+import com.zheng.fishagent.message.message.*;
 import com.zheng.fishagent.message.ToolCall;
-import com.zheng.fishagent.message.message.UserMessage;
+import com.zheng.fishagent.prompt.FinalAnswer;
 import com.zheng.fishagent.prompt.ReActOutputParser;
 import com.zheng.fishagent.prompt.ReActPrompt;
 import com.zheng.fishagent.prompt.ReActStep;
+import com.zheng.fishagent.prompt.ToolRequest;
+import com.zheng.fishagent.prompt.Unparsed;
 import com.zheng.fishagent.tool.Tool;
 import com.zheng.fishagent.tool.ToolRegistry;
 
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 默认 Agent 实现：基于 ReAct（Reason + Act）循环。
@@ -140,8 +141,11 @@ public final class ReActAgent implements Agent {
         MemoryLock lock = builder.memoryLock == null ? MemoryLock.local() : builder.memoryLock;
         this.memory = LockedChatMemory.wrap(
                 builder.memory == null ? new InMemoryChatMemory() : builder.memory, lock);
-        //会话记忆的视图，包括摘要提示词，工具等
-        this.memoryView = builder.memoryView;
+        // 会话记忆的视图，包括摘要提示词、工具等。
+        // 未显式配置时退化为「整份记忆」的视图，否则 doRun 首行写用户输入就会 NPE
+        this.memoryView = builder.memoryView != null
+                ? builder.memoryView
+                : new DelegateMemoryView(this.memory);
         this.instructions = builder.instructions;
         this.systemPromptOverride = builder.systemPromptOverride;
         // 轮数下限为 1：至少允许一次模型调用，否则 run 会直接空转退出
@@ -246,7 +250,7 @@ public final class ReActAgent implements Agent {
         callback.onStart(userInput);
         // 先落用户输入再进循环，保证构建请求时上下文是完整的
         if (userInput != null && !userInput.isBlank()) {
-            memoryView.add(new UserMessage(userInput));
+            memoryView.add(new UserMessage(List.of(new TextContent(userInput))));
         }
 
         // ---- 循环状态：全部为局部变量，天然隔离多次 run 之间的相互影响 ----
@@ -269,7 +273,7 @@ public final class ReActAgent implements Agent {
                 // 1) 请求模型（同步或流式，由 streaming 决定）
                 ChatResponse response = invoke(callback);
                 usage = usage.plus(response.usage());
-                Message assistant = response.message();
+                AssistantMessage assistant = response.message();
 
                 // 2) 把模型输出解释为工具调用列表（两种模式的差异在此收敛）
                 List<ToolCall> calls = resolveToolCalls(assistant);
@@ -290,7 +294,7 @@ public final class ReActAgent implements Agent {
                 // 文本模式下"思考"只在真的要调用工具时展示；
                 // 最终答案那一轮的思考没有信息量，且会在答案之后打印造成困惑。
                 if (mode == ToolCallMode.REACT_TEXT) {
-                    String thought = extractThought(assistant.content());
+                    String thought = extractThought(assistant.text());
                     if (!thought.isBlank()) {
                         callback.onThought(thought);
                     }
@@ -301,6 +305,7 @@ public final class ReActAgent implements Agent {
                 memoryView.add(assistant);
                 callback.onMessage(assistant);
 
+                /*是否要终止循环*/
                 boolean loopDetected = false;
                 for (ToolCall call : calls) {
                     // 容错：模型偶尔会用 input/query 之类的通用参数名，normalize 会纠正为声明名
@@ -328,7 +333,7 @@ public final class ReActAgent implements Agent {
 
                 // 3c) 判定死循环 ⇒ 提前终止，标记为未成功
                 if (loopDetected) {
-                    lastText = assistant.content();
+                    lastText = assistant.text();
                     stopReason = AgentResult.LOOP_DETECTED;
                     return finish(callback, lastText, iteration, usage, stopReason, false);
                 }
@@ -391,7 +396,7 @@ public final class ReActAgent implements Agent {
      */
     private ChatRequest buildRequest() {
         List<Message> context = new ArrayList<>();
-        context.add(Message.system(systemPrompt()));
+        context.add(new SystemMessage(List.of(new TextContent(systemPrompt()))));
         context.addAll(memoryView.messages());
 
         return ChatRequest.builder()
@@ -409,12 +414,12 @@ public final class ReActAgent implements Agent {
      * 这是两种模式的关键分叉点之一：原生模式直接读结构化字段，
      * 文本模式则交给 {@link ReActOutputParser} 解析文本协议。
      */
-    private List<ToolCall> resolveToolCalls(Message assistant) {
+    private List<ToolCall> resolveToolCalls(AssistantMessage assistant) {
         if (mode == ToolCallMode.NATIVE_TOOLS) {
-            return AssistantMessage.toolCalls(assistant);
+            return  assistant.toolCallsCopyOnWrite();
         }
-        ReActStep step = ReActOutputParser.parse(assistant.content());
-        if (step instanceof ReActStep.ToolRequest request) {
+        ReActStep step = ReActOutputParser.parse(assistant.text());
+        if (step instanceof ToolRequest request) {
             return List.of(ToolCall.of(request.tool(), request.arguments()));
         }
         // FinalAnswer / Unparsed 都按「没有工具调用」处理，即循环可以在这一轮结束
@@ -430,9 +435,9 @@ public final class ReActAgent implements Agent {
      */
     private Message observation(ToolCall call, String result) {
         if (mode == ToolCallMode.NATIVE_TOOLS) {
-            return Message.tool(call.name(), result);
+            return new ToolMessage(List.of(new TextContent(result)), call.id(), call.name());
         }
-        return Message.user(ReActPrompt.observationBlock(call.name(), result));
+        return new UserMessage(List.of(new TextContent(ReActPrompt.observationBlock(call.name(), result))));
     }
 
     /**
@@ -444,7 +449,8 @@ public final class ReActAgent implements Agent {
                                TokenUsage usage, String stopReason, boolean success) {
         // AgentResult 内部会对 messages 做 List.copyOf，得到不可变快照，
         // 因此返回值不会随后续 run 修改记忆而发生变化
-        AgentResult result = new AgentResult(text, memoryView.messages(), iterations, usage, stopReason, success);
+        AgentResult result = new AgentResult(text, List.copyOf(memoryView.messages()),
+                iterations, usage, stopReason, success);
         callback.onFinish(result);
         return result;
     }
@@ -454,18 +460,21 @@ public final class ReActAgent implements Agent {
      * <p>
      * switch 针对 sealed 接口 {@link ReActStep} 做穷尽匹配，编译器会保证三个分支都被覆盖。
      */
-    private String finalText(Message assistant) {
-        if (mode == ToolCallMode.NATIVE_TOOLS) {
-            return assistant.content();
+    private String finalText(AssistantMessage assistant) {
+        if (assistant.text() == null || assistant.text().isBlank()) {
+            return "";
         }
-        ReActStep step = ReActOutputParser.parse(assistant.content());
+        if (mode == ToolCallMode.NATIVE_TOOLS) {
+            return assistant.text();
+        }
+        ReActStep step = ReActOutputParser.parse(assistant.text());
         return switch (step) {
             // 正常拿到了 Final Answer，取其正文
-            case ReActStep.FinalAnswer answer -> answer.text();
+            case FinalAnswer answer -> answer.text();
             // 格式不符：按原样兜底返回，总比返回空字符串好
-            case ReActStep.Unparsed unparsed -> unparsed.raw();
+            case Unparsed unparsed -> unparsed.raw();
             // 走到这里说明还在要工具，理论上不该出现在终止路径上，返回原文以免丢信息
-            case ReActStep.ToolRequest ignored -> assistant.content();
+            case ToolRequest ignored -> assistant.text();
         };
     }
 
@@ -476,11 +485,11 @@ public final class ReActAgent implements Agent {
      * 并非合格的答案。因此只作为最后手段，并配合 {@code success = false} 让调用方自行判断。
      */
     private String fallbackText() {
-        List<Message> messages = memoryView.messages();
+        List<? extends Message> messages = memoryView.messages();
         for (int i = messages.size() - 1; i >= 0; i--) {
             Message message = messages.get(i);
-            if (message.role() == com.zheng.fishagent.message.Role.ASSISTANT && !message.content().isBlank()) {
-                return finalText(message);
+            if (message  instanceof AssistantMessage) {
+                return finalText((AssistantMessage) message);
             }
         }
         // 一条可用消息都没有（例如模型全程只输出空内容）
@@ -496,10 +505,10 @@ public final class ReActAgent implements Agent {
         }
         ReActStep step = ReActOutputParser.parse(content);
         return switch (step) {
-            case ReActStep.FinalAnswer answer -> answer.thought();
-            case ReActStep.ToolRequest request -> request.thought();
+            case FinalAnswer answer -> answer.thought();
+            case ToolRequest request -> request.thought();
             // 解析失败时不臆造思考内容
-            case ReActStep.Unparsed ignored -> "";
+            case Unparsed ignored -> "";
         };
     }
 
@@ -518,82 +527,26 @@ public final class ReActAgent implements Agent {
      * 注意这里不区分「过程」与「答案」——原生模型的正文通常就是答案。
      * 若模型会在调用工具前输出推理文本，这些文本同样会被转发出去。
      */
-    private StreamListener tokenForwarder(AgentListener callback) {
-        return new StreamListener() {
-            @Override
-            public void onToken(String token) {
-                callback.onToken(token);
-            }
-        };
+    private static StreamListener tokenForwarder(AgentListener callback) {
+        return callback::onToken;
     }
 
     /**
-     * 文本 ReAct 模式下的流式门控：模型会先输出 Thought/Action 才能得到答案，
-     * 这些中间步骤不应该直接呈现给用户。这里只在检测到 "Final Answer:" 后开始向下游推送。
+     * 把 {@link ChatMemory} 适配为 {@link ChatMemoryView}。
      * <p>
-     * 实现要点：由于 token 是任意切分的，标记可能跨越多个 token，
-     * 因此必须<b>先缓冲、再扫描</b>。用 {@code emittedUpTo} 游标记录已下发的边界，
-     * 保证每段文本只推送一次。
-     * <p>
-     * 一个实例对应一次模型调用，不可跨轮复用。
+     * 用于「只配置了 memory、未配置 memoryView」的场景：此时视图等价于整份记忆，
+     * 不做窗口裁剪也不做摘要压缩。
      */
-    private static final class FinalAnswerGate implements StreamListener {
+    private record DelegateMemoryView(ChatMemory memory) implements ChatMemoryView {
 
-        /** 匹配 "Final Answer:" 标签（容忍前导空格/引用符/列表符，以及加粗与中英文冒号）。 */
-        private static final Pattern FINAL_LABEL = Pattern.compile(
-                "(?im)^[\\s>*-]*Final\\s*Answer\\s*[*]*\\s*[:：]\\s*");
-
-        /** 匹配 "Action:" 标签，用于判断本轮是工具调用而非最终答案。 */
-        private static final Pattern ACTION_LABEL = Pattern.compile(
-                "(?im)^[\\s>*-]*Action\\s*[*]*\\s*[:：]");
-
-        private final AgentListener callback;
-        /** 累积的所有 token，扫描与切片都基于它。 */
-        private final StringBuilder buffer = new StringBuilder();
-        /** 已推送到下游的位置；-1 表示尚未发现 Final Answer 标记。 */
-        private int emittedUpTo = -1;
-
-        private FinalAnswerGate(AgentListener callback) {
-            this.callback = callback;
+        @Override
+        public void add(Message message) {
+            memory.add(message);
         }
 
         @Override
-        public void onToken(String token) {
-            if (token == null || token.isEmpty()) {
-                return;
-            }
-            buffer.append(token);
-            if (emittedUpTo < 0) {
-                // 门尚未打开：在缓冲区中寻找 Final Answer 标记
-                Matcher matcher = FINAL_LABEL.matcher(buffer);
-                if (matcher.find()) {
-                    // 标记之后的正文立即下发，并打开门（此后不再走扫描逻辑）
-                    emittedUpTo = matcher.end();
-                    emitTail();
-                    return;
-                }
-                if (ACTION_LABEL.matcher(buffer).find()) {
-                    // 本步是工具调用，丢包并重置缓冲，继续等待真正的 Final Answer。
-                    // 重置是必要的：否则下一轮的 Thought 会和上一轮的残留拼在一起，
-                    // 可能误判出根本不存在的 Final Answer 标记。
-                    buffer.setLength(0);
-                }
-                return;
-            }
-            // 门已打开：缓冲区新增部分直接下发
-            emitTail();
-        }
-
-        /** 推送 {@code [emittedUpTo, buffer.length())} 区间，并推进游标。 */
-        private void emitTail() {
-            if (emittedUpTo < 0 || emittedUpTo > buffer.length()) {
-                return;
-            }
-            String tail = buffer.substring(emittedUpTo);
-            if (!tail.isEmpty()) {
-                emittedUpTo = buffer.length();
-                callback.onToken(tail);
-            }
+        public List<? extends Message> messages() {
+            return memory.messages();
         }
     }
 

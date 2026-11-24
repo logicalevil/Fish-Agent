@@ -2,6 +2,7 @@ package com.zheng.fishagent.memory;
 
 import com.zheng.fishagent.core.FishAgentException;
 import com.zheng.fishagent.memory.lock.MemoryLock;
+import com.zheng.fishagent.message.message.BaseMessage;
 import com.zheng.fishagent.message.message.Message;
 import com.zheng.fishagent.util.Json;
 
@@ -100,7 +101,7 @@ public final class FileChatMemory implements ChatMemory {
                 if (line.isBlank()) {
                     continue;
                 }
-                cache.add(Message.fromMap(Json.readMap(line)));
+                cache.add(BaseMessage.fromMap(Json.readMap(line)));
             }
         } catch (IOException e) {
             throw FishAgentException.wrap("读取会话文件失败：" + file, e);
@@ -159,7 +160,7 @@ public final class FileChatMemory implements ChatMemory {
      */
     public void importMessages(List<Map<String, Object>> rawMessages) {
         for (Map<String, Object> raw : rawMessages) {
-            add(Message.fromMap(raw));
+            add(BaseMessage.fromMap(raw));
         }
     }
 }

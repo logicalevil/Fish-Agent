@@ -11,12 +11,10 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 校验 {@link AssistantMessage} 上「从任意 {@link Message} 取工具调用」的静态入口。
+ * 校验 {@link AssistantMessage} 上工具调用的实例入口与映射序列化。
  */
 class AssistantMessageTest {
 
@@ -26,20 +24,12 @@ class AssistantMessageTest {
         return new AssistantMessage(TEXT, List.of(calls));
     }
 
-    private static Message user() {
-        return new UserMessage(List.of(new TextContent("6 乘 7")));
-    }
-
-    private static Message tool() {
-        return new ToolMessage(List.of(new TextContent("42")), "call-1", "multiply");
-    }
-
     @Test
     void 助手消息应原样返回工具调用列表() {
         ToolCall multiply = ToolCall.of("multiply", Map.of("a", 6, "b", 7));
         AssistantMessage message = assistant(multiply);
 
-        List<ToolCall> calls = AssistantMessage.toolCalls((Message) message);
+        List<ToolCall> calls = message.toolCallsCopyOnWrite();
 
         assertEquals(1, calls.size());
         assertEquals("multiply", calls.getFirst().name());
@@ -48,57 +38,33 @@ class AssistantMessageTest {
     }
 
     @Test
-    void 工具调用列表为不可变副本() {
+    void 工具调用列表为防御性副本() {
         AssistantMessage message = assistant(ToolCall.of("multiply", Map.of()));
 
-        List<ToolCall> calls = AssistantMessage.toolCalls((Message) message);
+        List<ToolCall> calls = message.toolCallsCopyOnWrite();
+        calls.add(ToolCall.of("other", Map.of()));
 
-        assertSame(calls, AssistantMessage.toolCalls(message), "同一实例应返回同一列表");
-        assertThrows(UnsupportedOperationException.class,
-                () -> calls.add(ToolCall.of("other", Map.of())));
+        assertEquals(1, message.toolCallsCopyOnWrite().size(), "修改返回值不应影响消息内部状态");
     }
 
     @Test
     void 构造时传入null应视为无工具调用() {
         AssistantMessage message = new AssistantMessage(TEXT, null);
 
-        assertTrue(AssistantMessage.toolCalls((Message) message).isEmpty());
-        assertFalse(AssistantMessage.hasToolCalls(message));
+        assertTrue(message.toolCallsCopyOnWrite().isEmpty());
+        assertFalse(message.hasToolCalls());
     }
 
     @Test
     void 有工具调用时hasToolCalls为真() {
         AssistantMessage message = assistant(ToolCall.of("multiply", Map.of()));
 
-        assertTrue(AssistantMessage.hasToolCalls(message));
+        assertTrue(message.hasToolCalls());
     }
 
     @Test
     void 无工具调用时hasToolCalls为假() {
-        assertFalse(AssistantMessage.hasToolCalls(new AssistantMessage(TEXT, List.of())));
-    }
-
-    @Test
-    void 非助手消息取工具调用应抛异常且信息含实际类型() {
-        Message user = user();
-
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> AssistantMessage.toolCalls(user));
-
-        assertTrue(ex.getMessage().contains("UserMessage"),
-                "异常信息应包含实际类型，实际为：" + ex.getMessage());
-    }
-
-    @Test
-    void 非助手消息查询hasToolCalls应抛异常() {
-        assertThrows(IllegalArgumentException.class,
-                () -> AssistantMessage.hasToolCalls(tool()));
-    }
-
-    @Test
-    void 传入null应快速失败() {
-        assertThrows(IllegalArgumentException.class,
-                () -> AssistantMessage.toolCalls(null));
+        assertFalse(new AssistantMessage(TEXT, List.of()).hasToolCalls());
     }
 
     @Test

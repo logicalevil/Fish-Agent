@@ -1,6 +1,11 @@
 package com.zheng.fishagent.llm;
 
+import com.zheng.fishagent.message.content.TextContent;
+import com.zheng.fishagent.message.message.AssistantMessage;
 import com.zheng.fishagent.message.message.Message;
+import com.zheng.fishagent.message.message.SystemMessage;
+
+import java.util.List;
 
 /**
  * 大模型对话能力抽象。接入新的模型厂商时实现该接口即可。
@@ -30,7 +35,7 @@ public interface ChatModel {
      */
     default boolean healthy() {
         try {
-            call(ChatRequest.builder().message(Message.user("ping")).build());
+            call(ChatRequest.builder().message(new SystemMessage(List.of(new TextContent("hello")))).build());
             return true;
         } catch (Exception e) {
             return false;

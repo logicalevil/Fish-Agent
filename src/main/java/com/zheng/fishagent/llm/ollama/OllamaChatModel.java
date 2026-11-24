@@ -8,6 +8,8 @@ import com.zheng.fishagent.llm.ChatRequest;
 import com.zheng.fishagent.llm.ChatResponse;
 import com.zheng.fishagent.llm.StreamListener;
 import com.zheng.fishagent.llm.TokenUsage;
+import com.zheng.fishagent.message.content.Content;
+import com.zheng.fishagent.message.content.TextContent;
 import com.zheng.fishagent.message.message.AssistantMessage;
 import com.zheng.fishagent.message.message.Message;
 import com.zheng.fishagent.message.Role;
@@ -103,6 +105,21 @@ public final class OllamaChatModel implements ChatModel {
 
     // ------------------------------------------------------------------ 流式
 
+    /**
+     * 流式调用入口：把真正的协议解析交给 {@link #doStream}，自身只负责监听器回调的编排。
+     *
+     * <p>职责边界：
+     * <ul>
+     *   <li>listener 为 {@code null} 时替换为 {@link StreamListener#NOOP}，后续无需判空；</li>
+     *   <li>正常返回前触发 {@code onComplete}，异常时触发 {@code onError} 并原样重抛；</li>
+     *   <li>catch 的是 {@link RuntimeException}，因为 {@code doStream} 已把受检异常统一转为
+     *       {@link FishAgentException}。</li>
+     * </ul>
+     *
+     * @param request  请求参数，内部会序列化为 {@code stream=true} 的 Ollama 请求体
+     * @param listener 逐 token 回调的监听器，可为 {@code null}
+     * @return 聚合后的完整响应（正文、工具调用、token 用量、结束原因）
+     */
     @Override
     public ChatResponse stream(ChatRequest request, StreamListener listener) {
         StreamListener callback = listener == null ? StreamListener.NOOP : listener;
@@ -116,10 +133,32 @@ public final class OllamaChatModel implements ChatModel {
         }
     }
 
+    /**
+     * 流式协议解析器：读取 Ollama 返回的 NDJSON 流，逐行拆解并聚合出完整响应。
+     *
+     * <p>每行独立解析，四类信息分别处理：
+     * <ol>
+     *   <li>正文片段：累积到 {@code content}，同时通过 {@code onToken} 实时推给调用方；</li>
+     *   <li>工具调用：出现在任意行，累加到 {@code toolCalls}（分批返回也能兼容）；</li>
+     *   <li>结束行（{@code done=true}）：读取 {@code done_reason} 与 token 统计；</li>
+     *   <li>内嵌错误（HTTP 200 但带 {@code error} 字段）：直接抛 {@link FishAgentException}。</li>
+     * </ol>
+     *
+     * <p>与同步路径 {@code call} 的差异：请求不带总超时（流可能持续很久），
+     * 响应体按行消费，结束时统一组装为 {@link ChatResponse}。
+     *
+     * @param request  请求参数
+     * @param callback 已做空值兜底的监听器
+     * @return 聚合后的完整响应
+     * @throws FishAgentException 连接失败、被中断、或 Ollama 返回业务错误
+     */
     private ChatResponse doStream(ChatRequest request, StreamListener callback) {
+        // stream=true：让 Ollama 以 NDJSON 逐行返回，而非一次性返回完整 JSON
         String payload = Json.write(buildBody(request, true));
+        // withTimeout=false：流式响应可能持续很久，不设请求总超时
         HttpRequest httpRequest = newRequest("/api/chat", payload, false);
 
+        // 流式响应是碎片化的，以下变量用于跨行累积最终结果
         StringBuilder content = new StringBuilder();
         List<ToolCall> toolCalls = new ArrayList<>();
         long promptTokens = 0;
@@ -129,13 +168,16 @@ public final class OllamaChatModel implements ChatModel {
         try {
             HttpResponse<Stream<String>> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines());
             if (response.statusCode() >= 400) {
+                // HTTP 错误时响应体是错误说明而非 NDJSON，先读全再交给 ensureSuccess 抛出
                 String errorBody;
                 try (Stream<String> errorLines = response.body()) {
                     errorBody = errorLines.collect(Collectors.joining("\n"));
                 }
                 ensureSuccess(response.statusCode(), errorBody);
             }
+            // try-with-resources 保证流关闭，避免连接泄漏
             try (Stream<String> lines = response.body()) {
+                // 用 Iterator 而非 forEach：循环体内需要抛异常，lambda 中处理不便
                 Iterator<String> iterator = lines.iterator();
                 while (iterator.hasNext()) {
                     String line = iterator.next().trim();
@@ -144,12 +186,14 @@ public final class OllamaChatModel implements ChatModel {
                     }
                     JsonNode chunk = Json.mapper().readTree(line);
                     if (chunk.hasNonNull("error")) {
+                        // Ollama 可能以 HTTP 200 返回 {"error": "..."} 表示业务失败
                         throw FishAgentException.of("Ollama 返回错误：%s", chunk.get("error").asText());
                     }
                     JsonNode messageNode = chunk.get("message");
                     if (messageNode != null && !messageNode.isNull()) {
                         JsonNode contentNode = messageNode.get("content");
                         if (contentNode != null && !contentNode.isNull()) {
+                            // 每行的 content 是增量 token（非累积全文），需要自行拼接
                             String token = contentNode.asText();
                             if (!token.isEmpty()) {
                                 content.append(token);
@@ -158,14 +202,17 @@ public final class OllamaChatModel implements ChatModel {
                         }
                         JsonNode callsNode = messageNode.get("tool_calls");
                         if (callsNode != null && callsNode.isArray()) {
+                            // 工具调用可能分批出现在多行，用 addAll 累加
                             toolCalls.addAll(parseToolCalls(callsNode));
                         }
                     }
                     if (chunk.path("done").asBoolean(false)) {
+                        // done=true 是最后一行，只有它携带结束原因和 token 统计
                         String reason = chunk.path("done_reason").asText("");
                         if (!reason.isBlank()) {
                             finishReason = reason;
                         }
+                        // 以当前值作默认：字段缺失时保留已有值而非覆盖成 0
                         promptTokens = chunk.path("prompt_eval_count").asLong(promptTokens);
                         completionTokens = chunk.path("eval_count").asLong(completionTokens);
                     }
@@ -174,12 +221,13 @@ public final class OllamaChatModel implements ChatModel {
         } catch (IOException e) {
             throw connectionError(e);
         } catch (InterruptedException e) {
+            // 阻塞方法抛异常前会清除中断标记，这里恢复后上报，避免中断信号丢失
             Thread.currentThread().interrupt();
             throw new FishAgentException("流式调用 Ollama 被中断", e);
         }
 
         return new ChatResponse(
-                Message.assistant(content.toString(), toolCalls),
+                new AssistantMessage(List.of(new TextContent(content.toString())), toolCalls),
                 new TokenUsage(promptTokens, completionTokens),
                 finishReason);
     }
@@ -247,11 +295,14 @@ public final class OllamaChatModel implements ChatModel {
     private Map<String, Object> toWireMessage(Message message) {
         Map<String, Object> wire = new LinkedHashMap<>();
         wire.put("role", message.role().value());
-        wire.put("content", message.content() == null ? "" : message.content());
-
-        if (message.role() == Role.ASSISTANT && AssistantMessage.hasToolCalls(message)) {
-            List<Map<String, Object>> calls = new ArrayList<>( AssistantMessage.toolCalls(message).size());
-            for (ToolCall call :  AssistantMessage.toolCalls(message)) {
+        String content = message.contentList().stream()
+                .map(Content::text)
+                .collect(Collectors.joining(""));
+        wire.put("content", content);
+        if (message instanceof AssistantMessage assistant && assistant.hasToolCalls()) {
+            List<ToolCall> toolCalls = assistant.toolCallsCopyOnWrite();
+            List<Map<String, Object>> calls = new ArrayList<>(toolCalls.size());
+            for (ToolCall call : toolCalls) {
                 Map<String, Object> function = new LinkedHashMap<>();
                 function.put("name", call.name());
                 function.put("arguments", call.arguments());
@@ -290,7 +341,7 @@ public final class OllamaChatModel implements ChatModel {
             TokenUsage usage = new TokenUsage(
                     root.path("prompt_eval_count").asLong(0),
                     root.path("eval_count").asLong(0));
-            return new ChatResponse(Message.assistant(content, toolCalls), usage, finishReason);
+            return new ChatResponse(new AssistantMessage(List.of(new TextContent(content)), toolCalls), usage, finishReason);
         } catch (IOException e) {
             throw new FishAgentException("解析 Ollama 响应失败：" + body, e);
         }

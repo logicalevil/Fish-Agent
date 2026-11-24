@@ -1,6 +1,8 @@
 package com.zheng.fishagent.memory;
 
+import com.zheng.fishagent.message.message.AssistantMessage;
 import com.zheng.fishagent.message.message.Message;
+import com.zheng.fishagent.message.message.ToolMessage;
 import com.zheng.fishagent.message.ToolCall;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -46,9 +48,10 @@ class ChatMemoryTest {
 
         assertEquals(3, messages.size());
         assertEquals("你好", messages.getFirst().content());
-        assertEquals("calculate", messages.get(1).toolCalls().getFirst().name());
-        assertEquals(Map.of("expression", "1+1"), messages.get(1).toolCalls().getFirst().arguments());
-        assertEquals("calculate", messages.get(2).toolName());
+        AssistantMessage assistant = (AssistantMessage) messages.get(1);
+        assertEquals("calculate", assistant.toolCallsCopyOnWrite().getFirst().name());
+        assertEquals(Map.of("expression", "1+1"), assistant.toolCallsCopyOnWrite().getFirst().arguments());
+        assertEquals("calculate", ((ToolMessage) messages.get(2)).toolName());
     }
 
     @Test
