@@ -1,5 +1,6 @@
 package com.zheng.fishagent.prompt;
 
+import com.zheng.fishagent.core.prompt.*;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;

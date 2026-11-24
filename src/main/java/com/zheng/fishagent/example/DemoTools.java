@@ -1,7 +1,7 @@
 package com.zheng.fishagent.example;
 
-import com.zheng.fishagent.tool.annotation.AgentTool;
-import com.zheng.fishagent.tool.annotation.ToolParam;
+import com.zheng.fishagent.core.tool.annotation.AgentTool;
+import com.zheng.fishagent.core.tool.annotation.ToolParam;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;

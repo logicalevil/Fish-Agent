@@ -55,8 +55,8 @@ mvn -f pom.xml clean install
 
 ```java
 import com.zheng.fishagent.FishAgent;
-import com.zheng.fishagent.agent.Agent;
-import com.zheng.fishagent.agent.AgentResult;
+import com.zheng.fishagent.core.agent.Agent;
+import com.zheng.fishagent.core.agent.AgentResult;
 
 public class App {
     public static void main(String[] args) {
@@ -84,8 +84,9 @@ public class App {
 在普通方法上标注 `@AgentTool` 即可被自动扫描；参数用 `@ToolParam` 描述，框架会生成 JSON Schema 并完成参数类型转换。
 
 ```java
-import com.zheng.fishagent.tool.annotation.AgentTool;
-import com.zheng.fishagent.tool.annotation.ToolParam;
+import com.zheng.fishagent.core.tool.annotation.AgentTool;
+import com.zheng.fishagent.core.tool.annotation.ToolParam;
+
 import java.util.Map;
 
 public class MyTools {
@@ -108,8 +109,8 @@ public class MyTools {
 适合动态或轻量场景：
 
 ```java
-import com.zheng.fishagent.tool.FunctionTool;
-import com.zheng.fishagent.tool.Tool;
+import com.zheng.fishagent.core.tool.FunctionTool;
+import com.zheng.fishagent.core.tool.Tool;
 
 Tool tool = FunctionTool.builder()
         .name("get_weather")
@@ -140,7 +141,7 @@ Agent agent = FishAgent.builder()
 | `ToolCallMode.REACT_TEXT` | 通过提示词约定文本格式，框架解析 `Thought/Action/Action Input` | 不支持原生工具调用的模型 |
 
 ```java
-import com.zheng.fishagent.agent.ToolCallMode;
+import com.zheng.fishagent.core.agent.ToolCallMode;
 
 Agent agent = FishAgent.builder()
         .ollama("qwen2.5:7b")
@@ -156,17 +157,21 @@ Agent agent = FishAgent.builder()
 ## 记忆
 
 ```java
+import com.zheng.fishagent.core.memory.ChatMemory;
+import com.zheng.fishagent.core.memory.FileChatMemory;
+import com.zheng.fishagent.core.memory.InMemoryChatMemory;
+import com.zheng.fishagent.core.memory.MessageWindowChatMemory;
 import com.zheng.fishagent.memory.*;
 
 // 1) 内存记忆（默认）
 ChatMemory memory = new InMemoryChatMemory("session-1");
 
-// 2) 滑动窗口：上下文只保留最近 N 条，SYSTEM 消息始终保留
-ChatMemory windowed = MessageWindowChatMemory.of("session-1", 20);
+        // 2) 滑动窗口：上下文只保留最近 N 条，SYSTEM 消息始终保留
+        ChatMemory windowed = MessageWindowChatMemory.of("session-1", 20);
 
-// 3) 文件持久化（JSONL，一行一条消息），跨进程恢复
-ChatMemory file = FileChatMemory.of("session-1");                 // 默认 <工作目录>/.fishagent/sessions
-ChatMemory file2 = FileChatMemory.of("session-1", Path.of("data")); // 自定义目录
+        // 3) 文件持久化（JSONL，一行一条消息），跨进程恢复
+        ChatMemory file = FileChatMemory.of("session-1");                 // 默认 <工作目录>/.fishagent/sessions
+        ChatMemory file2 = FileChatMemory.of("session-1", Path.of("data")); // 自定义目录
 ```
 
 也可以在门面上直接指定：
@@ -182,7 +187,7 @@ FishAgent.builder().ollama("qwen2.5:7b").session("user-42", 30).build();
 `SummarizingChatMemory` 用**摘要**替代**丢弃**：累积的消息超过阈值时，把早期消息交给模型压成一条摘要，此后参与上下文的变成「摘要 + 最近若干条原文」。
 
 ```java
-import com.zheng.fishagent.memory.SummarizingChatMemory;
+import com.zheng.fishagent.core.memory.SummarizingChatMemory;
 
 ChatMemory memory = SummarizingChatMemory.of(
         MessageWindowChatMemory.of("user-42", 100),   // 底层保存原文
@@ -227,7 +232,8 @@ Agent agent = FishAgent.builder()
 **多实例部署**：同一个会话会被负载均衡分发到不同节点，此时本地锁无法防止并发写入导致的消息丢失。需要自行实现 `MemoryLock` 并注入：
 
 ```java
-import com.zheng.fishagent.memory.lock.MemoryLock;
+import com.zheng.fishagent.core.memory.lock.MemoryLock;
+
 import java.time.Duration;
 
 public class MyRedisLock implements MemoryLock {
@@ -292,16 +298,21 @@ if (!memoryLock.isDistributed() && isMultiInstanceDeployment) {
 `AgentListener` 覆盖了你需要关心的所有过程事件；`run` 时传入即可。
 
 ```java
-import com.zheng.fishagent.agent.AgentListener;
+import com.zheng.fishagent.core.agent.AgentListener;
 
 AgentListener listener = new AgentListener() {
-    @Override public void onToken(String token) {
+    @Override
+    public void onToken(String token) {
         System.out.print(token);                 // 流式增量文本
     }
-    @Override public void onToolCall(ToolCall call) {
+
+    @Override
+    public void onToolCall(ToolCall call) {
         System.out.println("\n[调用工具] " + call.name() + " " + call.arguments());
     }
-    @Override public void onToolResult(ToolCall call, String result) {
+
+    @Override
+    public void onToolResult(ToolCall call, String result) {
         System.out.println("[工具结果] " + result);
     }
 };
@@ -314,29 +325,33 @@ AgentResult result = agent.run("帮我查一下东京的天气", listener);
 需要同时做多件事时（如「控制台打印 + 审计日志 + 埋点统计」），不必把逻辑全塞进一个实现里——用 `CompositeAgentListener` 把任意多个 `AgentListener` 合成一个，事件会按传入顺序依次转发：
 
 ```java
-import com.zheng.fishagent.agent.CompositeAgentListener;
+import com.zheng.fishagent.core.agent.CompositeAgentListener;
 
 // 监听器 1：流式打印到控制台
 AgentListener consoleListener = new AgentListener() {
-    @Override public void onToken(String token) {
+    @Override
+    public void onToken(String token) {
         System.out.print(token);
     }
 };
 
-// 监听器 2：记录工具调用的审计日志
-AgentListener auditListener = new AgentListener() {
-    @Override public void onToolCall(ToolCall call) {
-        auditLog.info("调用工具 {}，参数 {}", call.name(), call.arguments());
-    }
-    @Override public void onToolResult(ToolCall call, String result) {
-        auditLog.info("工具 {} 返回 {}", call.name(), result);
-    }
-};
+        // 监听器 2：记录工具调用的审计日志
+        AgentListener auditListener = new AgentListener() {
+            @Override
+            public void onToolCall(ToolCall call) {
+                auditLog.info("调用工具 {}，参数 {}", call.name(), call.arguments());
+            }
 
-// 合成一个：两个监听器都会收到全部事件
-AgentListener listeners = new CompositeAgentListener(consoleListener, auditListener);
+            @Override
+            public void onToolResult(ToolCall call, String result) {
+                auditLog.info("工具 {} 返回 {}", call.name(), result);
+            }
+        };
 
-AgentResult result = agent.run("帮我查一下东京的天气", listeners);
+        // 合成一个：两个监听器都会收到全部事件
+        AgentListener listeners = new CompositeAgentListener(consoleListener, auditListener);
+
+        AgentResult result = agent.run("帮我查一下东京的天气", listeners);
 ```
 
 要点：
@@ -360,9 +375,9 @@ model.stream(request, token -> System.out.print(token)); // StreamListener 是�
 框架在三个结构边界自动埋点：一次 `run`、一次模型调用、一次工具执行。**默认零开销**——不配置时全部是空实现，不生成 ID、不压栈。
 
 ```java
-import com.zheng.fishagent.agent.SimpleTracer;
-import com.zheng.fishagent.agent.Span;
-import com.zheng.fishagent.message.ToolCall;
+import com.zheng.fishagent.core.agent.SimpleTracer;
+import com.zheng.fishagent.core.agent.Span;
+import com.zheng.fishagent.core.message.ToolCall;
 
 Agent agent = FishAgent.builder()
         .ollama("qwen2.5:7b")
@@ -370,14 +385,17 @@ Agent agent = FishAgent.builder()
         .build();
 
 AgentListener listener = new AgentListener() {
-    @Override public void onToolCall(ToolCall call) {
+    @Override
+    public void onToolCall(ToolCall call) {
         // 无需传参，直接读当前 span
         Span span = Span.current();
         System.out.println("[" + span.traceId() + "] 调用工具 " + call.name());
     }
 };
 
-agent.run("北京现在几点？", listener);
+agent.
+
+run("北京现在几点？",listener);
 ```
 
 要点：
@@ -420,6 +438,7 @@ System.out.println("轮数=" + result.iterations() + "，tokens=" + result.usage
 接入其它厂商只需实现 `ChatModel`：
 
 ```java
+import com.zheng.fishagent.core.llm.*;
 import com.zheng.fishagent.llm.*;
 
 public class MyChatModel implements ChatModel {

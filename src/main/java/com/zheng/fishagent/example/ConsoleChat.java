@@ -1,15 +1,15 @@
 package com.zheng.fishagent.example;
 
 import com.zheng.fishagent.FishAgent;
-import com.zheng.fishagent.agent.Agent;
-import com.zheng.fishagent.agent.AgentListener;
-import com.zheng.fishagent.agent.ToolCallMode;
-import com.zheng.fishagent.agent.AgentResult;
-import com.zheng.fishagent.llm.ollama.OllamaChatModel;
-import com.zheng.fishagent.message.ToolCall;
-import com.zheng.fishagent.tool.FunctionTool;
-import com.zheng.fishagent.tool.ToolRegistry;
-import com.zheng.fishagent.util.Json;
+import com.zheng.fishagent.core.agent.Agent;
+import com.zheng.fishagent.core.agent.AgentListener;
+import com.zheng.fishagent.core.agent.ToolCallMode;
+import com.zheng.fishagent.core.agent.AgentResult;
+import com.zheng.fishagent.core.llm.ollama.OllamaChatModel;
+import com.zheng.fishagent.core.message.ToolCall;
+import com.zheng.fishagent.core.tool.FunctionTool;
+import com.zheng.fishagent.core.tool.ToolRegistry;
+import com.zheng.fishagent.core.util.Json;
 
 import java.io.BufferedReader;
 import java.io.IOException;

@@ -1,14 +1,19 @@
 package com.zheng.fishagent.agent;
 
-import com.zheng.fishagent.llm.ChatResponse;
-import com.zheng.fishagent.memory.InMemoryChatMemory;
-import com.zheng.fishagent.message.message.Message;
-import com.zheng.fishagent.message.message.ToolMessage;
-import com.zheng.fishagent.message.Role;
-import com.zheng.fishagent.message.ToolCall;
-import com.zheng.fishagent.tool.ToolRegistry;
-import com.zheng.fishagent.tool.annotation.AgentTool;
-import com.zheng.fishagent.tool.annotation.ToolParam;
+import com.zheng.fishagent.core.agent.AgentListener;
+import com.zheng.fishagent.core.agent.AgentResult;
+import com.zheng.fishagent.core.agent.ReActAgent;
+import com.zheng.fishagent.core.agent.ToolCallMode;
+import com.zheng.fishagent.core.llm.ChatResponse;
+import com.zheng.fishagent.core.llm.TokenUsage;
+import com.zheng.fishagent.core.memory.InMemoryChatMemory;
+import com.zheng.fishagent.core.message.message.Message;
+import com.zheng.fishagent.core.message.message.ToolMessage;
+import com.zheng.fishagent.core.message.Role;
+import com.zheng.fishagent.core.message.ToolCall;
+import com.zheng.fishagent.core.tool.ToolRegistry;
+import com.zheng.fishagent.core.tool.annotation.AgentTool;
+import com.zheng.fishagent.core.tool.annotation.ToolParam;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -26,7 +31,7 @@ class ReActAgentTest {
         FakeChatModel model = new FakeChatModel()
                 .then(new ChatResponse(
                         Message.assistant("", List.of(ToolCall.of("multiply", Map.of("a", 6, "b", 7)))),
-                        com.zheng.fishagent.llm.TokenUsage.EMPTY,
+                        TokenUsage.EMPTY,
                         "stop"))
                 .thenText("结果是 42。");
 
@@ -127,7 +132,7 @@ class ReActAgentTest {
         for (int i = 0; i < 5; i++) {
             model.then(new ChatResponse(
                     Message.assistant("再确认一次", List.of(ToolCall.of("multiply", Map.of("a", i, "b", 2)))),
-                    com.zheng.fishagent.llm.TokenUsage.EMPTY,
+                    TokenUsage.EMPTY,
                     "stop"));
         }
 
@@ -151,7 +156,7 @@ class ReActAgentTest {
         for (int i = 0; i < 5; i++) {
             model.then(new ChatResponse(
                     Message.assistant("", List.of(ToolCall.of("multiply", Map.of("a", 1, "b", 1)))),
-                    com.zheng.fishagent.llm.TokenUsage.EMPTY,
+                    TokenUsage.EMPTY,
                     "stop"));
         }
 
@@ -175,7 +180,7 @@ class ReActAgentTest {
         FakeChatModel model = new FakeChatModel()
                 .then(new ChatResponse(
                         Message.assistant("", List.of(ToolCall.of("multiply", Map.of("a", 1, "b", 2)))),
-                        new com.zheng.fishagent.llm.TokenUsage(100, 10),
+                        new TokenUsage(100, 10),
                         "stop"))
                 .thenText("2");
 

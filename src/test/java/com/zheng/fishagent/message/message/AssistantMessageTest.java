@@ -1,9 +1,10 @@
 package com.zheng.fishagent.message.message;
 
-import com.zheng.fishagent.message.Role;
-import com.zheng.fishagent.message.ToolCall;
-import com.zheng.fishagent.message.content.Content;
-import com.zheng.fishagent.message.content.TextContent;
+import com.zheng.fishagent.core.message.Role;
+import com.zheng.fishagent.core.message.ToolCall;
+import com.zheng.fishagent.core.message.content.Content;
+import com.zheng.fishagent.core.message.content.TextContent;
+import com.zheng.fishagent.core.message.message.AssistantMessage;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

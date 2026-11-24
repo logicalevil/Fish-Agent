@@ -1,11 +1,11 @@
 package com.zheng.fishagent.agent;
 
-import com.zheng.fishagent.llm.ChatModel;
-import com.zheng.fishagent.llm.ChatRequest;
-import com.zheng.fishagent.llm.ChatResponse;
-import com.zheng.fishagent.llm.StreamListener;
-import com.zheng.fishagent.llm.TokenUsage;
-import com.zheng.fishagent.message.message.Message;
+import com.zheng.fishagent.core.llm.ChatModel;
+import com.zheng.fishagent.core.llm.ChatRequest;
+import com.zheng.fishagent.core.llm.ChatResponse;
+import com.zheng.fishagent.core.llm.StreamListener;
+import com.zheng.fishagent.core.llm.TokenUsage;
+import com.zheng.fishagent.core.message.message.Message;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;

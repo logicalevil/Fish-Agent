@@ -1,6 +1,8 @@
 package com.zheng.fishagent.memory.lock;
 
 import com.zheng.fishagent.core.FishAgentException;
+import com.zheng.fishagent.core.memory.lock.LocalMemoryLock;
+import com.zheng.fishagent.core.memory.lock.MemoryLock;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;

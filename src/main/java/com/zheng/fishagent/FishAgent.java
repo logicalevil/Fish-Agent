@@ -1,18 +1,18 @@
 package com.zheng.fishagent;
 
-import com.zheng.fishagent.agent.Agent;
-import com.zheng.fishagent.agent.Span;
-import com.zheng.fishagent.agent.ToolCallMode;
-import com.zheng.fishagent.agent.Tracer;
-import com.zheng.fishagent.agent.ReActAgent;
+import com.zheng.fishagent.core.agent.Agent;
+import com.zheng.fishagent.core.agent.Span;
+import com.zheng.fishagent.core.agent.ToolCallMode;
+import com.zheng.fishagent.core.agent.Tracer;
+import com.zheng.fishagent.core.agent.ReActAgent;
 import com.zheng.fishagent.core.FishAgentException;
-import com.zheng.fishagent.llm.ChatModel;
-import com.zheng.fishagent.llm.ollama.OllamaChatModel;
-import com.zheng.fishagent.memory.ChatMemory;
-import com.zheng.fishagent.memory.MessageWindowChatMemory;
-import com.zheng.fishagent.memory.lock.MemoryLock;
-import com.zheng.fishagent.tool.Tool;
-import com.zheng.fishagent.tool.ToolRegistry;
+import com.zheng.fishagent.core.llm.ChatModel;
+import com.zheng.fishagent.core.llm.ollama.OllamaChatModel;
+import com.zheng.fishagent.core.memory.ChatMemory;
+import com.zheng.fishagent.core.memory.MessageWindowChatMemory;
+import com.zheng.fishagent.core.memory.lock.MemoryLock;
+import com.zheng.fishagent.core.tool.Tool;
+import com.zheng.fishagent.core.tool.ToolRegistry;
 
 import java.util.Objects;
 

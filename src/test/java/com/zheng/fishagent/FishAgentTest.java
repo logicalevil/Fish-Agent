@@ -1,15 +1,15 @@
 package com.zheng.fishagent;
 
-import com.zheng.fishagent.agent.Agent;
-import com.zheng.fishagent.agent.AgentResult;
+import com.zheng.fishagent.core.agent.Agent;
+import com.zheng.fishagent.core.agent.AgentResult;
 import com.zheng.fishagent.agent.FakeChatModel;
 import com.zheng.fishagent.core.FishAgentException;
-import com.zheng.fishagent.llm.ChatResponse;
-import com.zheng.fishagent.llm.TokenUsage;
-import com.zheng.fishagent.message.message.Message;
-import com.zheng.fishagent.message.ToolCall;
-import com.zheng.fishagent.tool.annotation.AgentTool;
-import com.zheng.fishagent.tool.annotation.ToolParam;
+import com.zheng.fishagent.core.llm.ChatResponse;
+import com.zheng.fishagent.core.llm.TokenUsage;
+import com.zheng.fishagent.core.message.message.Message;
+import com.zheng.fishagent.core.message.ToolCall;
+import com.zheng.fishagent.core.tool.annotation.AgentTool;
+import com.zheng.fishagent.core.tool.annotation.ToolParam;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

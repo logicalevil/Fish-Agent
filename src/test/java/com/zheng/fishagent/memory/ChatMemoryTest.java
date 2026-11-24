@@ -1,9 +1,13 @@
 package com.zheng.fishagent.memory;
 
-import com.zheng.fishagent.message.message.AssistantMessage;
-import com.zheng.fishagent.message.message.Message;
-import com.zheng.fishagent.message.message.ToolMessage;
-import com.zheng.fishagent.message.ToolCall;
+import com.zheng.fishagent.core.memory.ChatMemory;
+import com.zheng.fishagent.core.memory.FileChatMemory;
+import com.zheng.fishagent.core.memory.InMemoryChatMemory;
+import com.zheng.fishagent.core.memory.MessageWindowChatMemory;
+import com.zheng.fishagent.core.message.message.AssistantMessage;
+import com.zheng.fishagent.core.message.message.Message;
+import com.zheng.fishagent.core.message.message.ToolMessage;
+import com.zheng.fishagent.core.message.ToolCall;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

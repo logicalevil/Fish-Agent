@@ -2,12 +2,13 @@ package com.zheng.fishagent.memory;
 
 import com.zheng.fishagent.agent.FakeChatModel;
 import com.zheng.fishagent.core.FishAgentException;
-import com.zheng.fishagent.llm.ChatModel;
-import com.zheng.fishagent.llm.ChatRequest;
-import com.zheng.fishagent.llm.ChatResponse;
-import com.zheng.fishagent.llm.StreamListener;
-import com.zheng.fishagent.message.message.Message;
-import com.zheng.fishagent.message.Role;
+import com.zheng.fishagent.core.llm.ChatModel;
+import com.zheng.fishagent.core.llm.ChatRequest;
+import com.zheng.fishagent.core.llm.ChatResponse;
+import com.zheng.fishagent.core.llm.StreamListener;
+import com.zheng.fishagent.core.memory.*;
+import com.zheng.fishagent.core.message.message.Message;
+import com.zheng.fishagent.core.message.Role;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
