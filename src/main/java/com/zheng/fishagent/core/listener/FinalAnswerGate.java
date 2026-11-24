@@ -1,6 +1,4 @@
-package com.zheng.fishagent.core.agent;
-
-import com.zheng.fishagent.core.llm.StreamListener;
+package com.zheng.fishagent.core.listener;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;

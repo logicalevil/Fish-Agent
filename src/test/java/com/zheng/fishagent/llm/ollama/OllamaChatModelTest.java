@@ -2,12 +2,12 @@ package com.zheng.fishagent.llm.ollama;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.sun.net.httpserver.HttpServer;
-import com.zheng.fishagent.core.FishAgentException;
+import com.zheng.fishagent.core.exception.FishAgentException;
 import com.zheng.fishagent.core.llm.ChatRequest;
 import com.zheng.fishagent.core.llm.ChatResponse;
 import com.zheng.fishagent.core.llm.ollama.OllamaChatModel;
 import com.zheng.fishagent.core.message.message.Message;
-import com.zheng.fishagent.core.message.Role;
+import com.zheng.fishagent.core.constant.Role;
 import com.zheng.fishagent.core.message.ToolCall;
 import com.zheng.fishagent.core.tool.ToolSpec;
 import com.zheng.fishagent.core.util.Json;

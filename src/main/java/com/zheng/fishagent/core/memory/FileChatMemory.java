@@ -1,7 +1,7 @@
 package com.zheng.fishagent.core.memory;
 
-import com.zheng.fishagent.core.FishAgentException;
-import com.zheng.fishagent.core.memory.lock.MemoryLock;
+import com.zheng.fishagent.core.exception.FishAgentException;
+import com.zheng.fishagent.core.lock.MemoryLock;
 import com.zheng.fishagent.core.message.message.BaseMessage;
 import com.zheng.fishagent.core.message.message.Message;
 import com.zheng.fishagent.core.util.Json;

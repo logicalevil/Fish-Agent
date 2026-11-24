@@ -1,5 +1,6 @@
 package com.zheng.fishagent.core.agent;
 
+import com.zheng.fishagent.core.listener.AgentListener;
 import com.zheng.fishagent.core.memory.ChatMemory;
 import com.zheng.fishagent.core.tool.Tool;
 

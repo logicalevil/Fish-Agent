@@ -1,15 +1,15 @@
 package com.zheng.fishagent.agent;
 
-import com.zheng.fishagent.core.agent.AgentListener;
+import com.zheng.fishagent.core.listener.AgentListener;
 import com.zheng.fishagent.core.agent.AgentResult;
 import com.zheng.fishagent.core.agent.ReActAgent;
-import com.zheng.fishagent.core.agent.ToolCallMode;
+import com.zheng.fishagent.core.constant.ToolCallMode;
 import com.zheng.fishagent.core.llm.ChatResponse;
 import com.zheng.fishagent.core.llm.TokenUsage;
 import com.zheng.fishagent.core.memory.InMemoryChatMemory;
 import com.zheng.fishagent.core.message.message.Message;
 import com.zheng.fishagent.core.message.message.ToolMessage;
-import com.zheng.fishagent.core.message.Role;
+import com.zheng.fishagent.core.constant.Role;
 import com.zheng.fishagent.core.message.ToolCall;
 import com.zheng.fishagent.core.tool.ToolRegistry;
 import com.zheng.fishagent.core.tool.annotation.AgentTool;

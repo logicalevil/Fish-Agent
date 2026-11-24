@@ -1,4 +1,4 @@
-package com.zheng.fishagent.core;
+package com.zheng.fishagent.core.exception;
 
 /**
  * Fish-Agent 统一异常类型。

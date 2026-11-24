@@ -1,4 +1,4 @@
-package com.zheng.fishagent.core.agent;
+package com.zheng.fishagent.core.constant;
 
 /**
  * Agent 的工具调用策略。

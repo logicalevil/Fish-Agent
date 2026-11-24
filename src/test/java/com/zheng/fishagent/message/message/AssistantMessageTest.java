@@ -1,6 +1,6 @@
 package com.zheng.fishagent.message.message;
 
-import com.zheng.fishagent.core.message.Role;
+import com.zheng.fishagent.core.constant.Role;
 import com.zheng.fishagent.core.message.ToolCall;
 import com.zheng.fishagent.core.message.content.Content;
 import com.zheng.fishagent.core.message.content.TextContent;

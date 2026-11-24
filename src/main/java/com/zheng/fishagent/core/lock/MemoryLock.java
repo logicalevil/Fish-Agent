@@ -1,5 +1,6 @@
-package com.zheng.fishagent.core.memory.lock;
+package com.zheng.fishagent.core.lock;
 
+import com.zheng.fishagent.core.exception.FishAgentException;
 import com.zheng.fishagent.core.memory.ChatMemory;
 
 import java.time.Duration;
@@ -19,7 +20,7 @@ import java.util.function.Supplier;
  * <b>实现注意事项</b>：
  * <ul>
  *   <li>{@link #execute} 必须在异常路径下也释放锁（用 {@code try/finally}）；</li>
- *   <li>获取锁失败或超时应抛 {@link com.zheng.fishagent.core.FishAgentException}，
+ *   <li>获取锁失败或超时应抛 {@link FishAgentException}，
  *       不要静默跳过临界区；</li>
  *   <li>若使用带租约的分布式锁，租约时长必须大于单次临界区的最大耗时，
  *       否则锁可能在临界区执行中途失效。</li>
@@ -45,7 +46,7 @@ public interface MemoryLock {
      * @param action   临界区内的动作
      * @param <T>      动作的返回类型
      * @return 动作的执行结果
-     * @throws com.zheng.fishagent.core.FishAgentException 获取锁失败或超时；此时动作不会被执行
+     * @throws FishAgentException 获取锁失败或超时；此时动作不会被执行
      */
     <T> T execute(String resource, Duration timeout, Supplier<T> action);
 

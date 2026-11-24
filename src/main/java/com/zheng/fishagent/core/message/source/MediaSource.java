@@ -1,6 +1,6 @@
 package com.zheng.fishagent.core.message.source;
 
-import com.zheng.fishagent.core.message.constant.MediaSourceKeys;
+import com.zheng.fishagent.core.constant.MediaSourceKeys;
 
 import java.util.Map;
 

@@ -1,4 +1,6 @@
-package com.zheng.fishagent.core.message.content;
+package com.zheng.fishagent.core.constant;
+
+import com.zheng.fishagent.core.message.content.Content;
 
 /**
  * {@link Content#toMap()} 映射表示中使用的键名与类型标识。

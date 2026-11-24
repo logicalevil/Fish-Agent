@@ -1,6 +1,6 @@
 package com.zheng.fishagent.example;
 
-import com.zheng.fishagent.core.FishAgentException;
+import com.zheng.fishagent.core.exception.FishAgentException;
 
 /**
  * 极简四则运算求值器（递归下降），用于示例工具。

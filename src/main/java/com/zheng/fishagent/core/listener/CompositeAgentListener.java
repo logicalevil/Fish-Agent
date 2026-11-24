@@ -1,5 +1,7 @@
-package com.zheng.fishagent.core.agent;
+package com.zheng.fishagent.core.listener;
 
+import com.zheng.fishagent.core.agent.Agent;
+import com.zheng.fishagent.core.agent.AgentResult;
 import com.zheng.fishagent.core.message.message.Message;
 import com.zheng.fishagent.core.message.ToolCall;
 

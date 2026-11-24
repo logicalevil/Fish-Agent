@@ -109,7 +109,7 @@ public class MyTools {
 适合动态或轻量场景：
 
 ```java
-import com.zheng.fishagent.core.tool.FunctionTool;
+import com.zheng.fishagent.example.tool.FunctionTool;
 import com.zheng.fishagent.core.tool.Tool;
 
 Tool tool = FunctionTool.builder()
@@ -141,7 +141,7 @@ Agent agent = FishAgent.builder()
 | `ToolCallMode.REACT_TEXT` | 通过提示词约定文本格式，框架解析 `Thought/Action/Action Input` | 不支持原生工具调用的模型 |
 
 ```java
-import com.zheng.fishagent.core.agent.ToolCallMode;
+import com.zheng.fishagent.core.constant.ToolCallMode;
 
 Agent agent = FishAgent.builder()
         .ollama("qwen2.5:7b")
@@ -232,7 +232,7 @@ Agent agent = FishAgent.builder()
 **多实例部署**：同一个会话会被负载均衡分发到不同节点，此时本地锁无法防止并发写入导致的消息丢失。需要自行实现 `MemoryLock` 并注入：
 
 ```java
-import com.zheng.fishagent.core.memory.lock.MemoryLock;
+import com.zheng.fishagent.core.lock.MemoryLock;
 
 import java.time.Duration;
 
@@ -298,7 +298,7 @@ if (!memoryLock.isDistributed() && isMultiInstanceDeployment) {
 `AgentListener` 覆盖了你需要关心的所有过程事件；`run` 时传入即可。
 
 ```java
-import com.zheng.fishagent.core.agent.AgentListener;
+import com.zheng.fishagent.core.listener.AgentListener;
 
 AgentListener listener = new AgentListener() {
     @Override
@@ -325,7 +325,7 @@ AgentResult result = agent.run("帮我查一下东京的天气", listener);
 需要同时做多件事时（如「控制台打印 + 审计日志 + 埋点统计」），不必把逻辑全塞进一个实现里——用 `CompositeAgentListener` 把任意多个 `AgentListener` 合成一个，事件会按传入顺序依次转发：
 
 ```java
-import com.zheng.fishagent.core.agent.CompositeAgentListener;
+import com.zheng.fishagent.core.listener.CompositeAgentListener;
 
 // 监听器 1：流式打印到控制台
 AgentListener consoleListener = new AgentListener() {
@@ -375,8 +375,8 @@ model.stream(request, token -> System.out.print(token)); // StreamListener 是�
 框架在三个结构边界自动埋点：一次 `run`、一次模型调用、一次工具执行。**默认零开销**——不配置时全部是空实现，不生成 ID、不压栈。
 
 ```java
-import com.zheng.fishagent.core.agent.SimpleTracer;
-import com.zheng.fishagent.core.agent.Span;
+import com.zheng.fishagent.core.trace.SimpleTracer;
+import com.zheng.fishagent.core.trace.Span;
 import com.zheng.fishagent.core.message.ToolCall;
 
 Agent agent = FishAgent.builder()
@@ -438,6 +438,7 @@ System.out.println("轮数=" + result.iterations() + "，tokens=" + result.usage
 接入其它厂商只需实现 `ChatModel`：
 
 ```java
+import com.zheng.fishagent.core.listener.StreamListener;
 import com.zheng.fishagent.core.llm.*;
 import com.zheng.fishagent.llm.*;
 

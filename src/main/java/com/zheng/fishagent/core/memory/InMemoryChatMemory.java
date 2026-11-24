@@ -1,6 +1,6 @@
 package com.zheng.fishagent.core.memory;
 
-import com.zheng.fishagent.core.memory.lock.MemoryLock;
+import com.zheng.fishagent.core.lock.MemoryLock;
 import com.zheng.fishagent.core.message.message.Message;
 
 import java.time.Duration;

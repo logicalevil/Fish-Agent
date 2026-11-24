@@ -2,12 +2,12 @@ package com.zheng.fishagent.example;
 
 import com.zheng.fishagent.FishAgent;
 import com.zheng.fishagent.core.agent.Agent;
-import com.zheng.fishagent.core.agent.AgentListener;
-import com.zheng.fishagent.core.agent.ToolCallMode;
+import com.zheng.fishagent.core.listener.AgentListener;
+import com.zheng.fishagent.core.constant.ToolCallMode;
 import com.zheng.fishagent.core.agent.AgentResult;
 import com.zheng.fishagent.core.llm.ollama.OllamaChatModel;
 import com.zheng.fishagent.core.message.ToolCall;
-import com.zheng.fishagent.core.tool.FunctionTool;
+import com.zheng.fishagent.example.tool.FunctionTool;
 import com.zheng.fishagent.core.tool.ToolRegistry;
 import com.zheng.fishagent.core.util.Json;
 

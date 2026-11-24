@@ -1,16 +1,16 @@
 package com.zheng.fishagent.core.message.message;
 
-import com.zheng.fishagent.core.message.Role;
-import com.zheng.fishagent.core.message.constant.MessageKeys;
+import com.zheng.fishagent.core.constant.Role;
+import com.zheng.fishagent.core.constant.MessageKeys;
 import com.zheng.fishagent.core.message.content.AudioContent;
 import com.zheng.fishagent.core.message.content.Content;
-import com.zheng.fishagent.core.message.content.ContentKeys;
+import com.zheng.fishagent.core.constant.ContentKeys;
 import com.zheng.fishagent.core.message.content.ImageContent;
 import com.zheng.fishagent.core.message.content.TextContent;
 import com.zheng.fishagent.core.message.content.VideoContent;
 import com.zheng.fishagent.core.message.source.Base64DataSource;
 import com.zheng.fishagent.core.message.source.MediaSource;
-import com.zheng.fishagent.core.message.constant.MediaSourceKeys;
+import com.zheng.fishagent.core.constant.MediaSourceKeys;
 import com.zheng.fishagent.core.message.source.UrlSource;
 
 import java.util.ArrayList;

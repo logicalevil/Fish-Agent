@@ -1,6 +1,6 @@
 package com.zheng.fishagent.core.tool;
 
-import com.zheng.fishagent.core.FishAgentException;
+import com.zheng.fishagent.core.exception.FishAgentException;
 import com.zheng.fishagent.core.tool.annotation.ToolParam;
 import com.zheng.fishagent.core.util.Json;
 

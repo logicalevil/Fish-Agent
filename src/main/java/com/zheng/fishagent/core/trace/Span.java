@@ -1,4 +1,7 @@
-package com.zheng.fishagent.core.agent;
+package com.zheng.fishagent.core.trace;
+
+import com.zheng.fishagent.core.listener.AgentListener;
+import com.zheng.fishagent.core.agent.ReActAgent;
 
 /**
  * 一次可观测操作的「片段」（span）。

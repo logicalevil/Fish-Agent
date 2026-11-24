@@ -1,7 +1,7 @@
 package com.zheng.fishagent.tool;
 
 import com.zheng.fishagent.core.message.ToolCall;
-import com.zheng.fishagent.core.tool.FunctionTool;
+import com.zheng.fishagent.example.tool.FunctionTool;
 import com.zheng.fishagent.core.tool.Tool;
 import com.zheng.fishagent.core.tool.ToolRegistry;
 import com.zheng.fishagent.core.tool.annotation.AgentTool;

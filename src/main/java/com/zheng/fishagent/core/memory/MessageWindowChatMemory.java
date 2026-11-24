@@ -1,7 +1,7 @@
 package com.zheng.fishagent.core.memory;
 
 import com.zheng.fishagent.core.message.message.Message;
-import com.zheng.fishagent.core.message.Role;
+import com.zheng.fishagent.core.constant.Role;
 
 import java.util.ArrayList;
 import java.util.List;

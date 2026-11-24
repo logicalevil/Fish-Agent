@@ -1,6 +1,5 @@
-package com.zheng.fishagent.core.message.constant;
+package com.zheng.fishagent.core.constant;
 
-import com.zheng.fishagent.core.message.Role;
 import com.zheng.fishagent.core.message.message.Message;
 
 /**

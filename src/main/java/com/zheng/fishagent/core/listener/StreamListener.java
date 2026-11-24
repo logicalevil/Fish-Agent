@@ -1,4 +1,6 @@
-package com.zheng.fishagent.core.llm;
+package com.zheng.fishagent.core.listener;
+
+import com.zheng.fishagent.core.llm.ChatResponse;
 
 /**
  * 流式输出回调。函数式接口，可直接写成 {@code model.stream(request, token -> System.out.print(token))}。

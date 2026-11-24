@@ -3,7 +3,7 @@ package com.zheng.fishagent.agent;
 import com.zheng.fishagent.core.llm.ChatModel;
 import com.zheng.fishagent.core.llm.ChatRequest;
 import com.zheng.fishagent.core.llm.ChatResponse;
-import com.zheng.fishagent.core.llm.StreamListener;
+import com.zheng.fishagent.core.listener.StreamListener;
 import com.zheng.fishagent.core.llm.TokenUsage;
 import com.zheng.fishagent.core.message.message.Message;
 

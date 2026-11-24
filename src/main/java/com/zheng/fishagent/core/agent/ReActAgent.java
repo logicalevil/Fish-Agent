@@ -1,17 +1,23 @@
 package com.zheng.fishagent.core.agent;
 
+import com.zheng.fishagent.core.constant.ToolCallMode;
+import com.zheng.fishagent.core.listener.AgentListener;
+import com.zheng.fishagent.core.listener.FinalAnswerGate;
 import com.zheng.fishagent.core.llm.ChatModel;
 import com.zheng.fishagent.core.llm.ChatRequest;
 import com.zheng.fishagent.core.llm.ChatResponse;
-import com.zheng.fishagent.core.llm.StreamListener;
+import com.zheng.fishagent.core.listener.StreamListener;
 import com.zheng.fishagent.core.llm.TokenUsage;
 import com.zheng.fishagent.core.memory.ChatMemory;
 import com.zheng.fishagent.core.memory.ChatMemoryView;
 import com.zheng.fishagent.core.memory.InMemoryChatMemory;
 import com.zheng.fishagent.core.memory.LockedChatMemory;
-import com.zheng.fishagent.core.memory.lock.MemoryLock;
+import com.zheng.fishagent.core.lock.MemoryLock;
 import com.zheng.fishagent.core.message.content.TextContent;
 import com.zheng.fishagent.core.message.message.*;
+import com.zheng.fishagent.core.trace.Span;
+import com.zheng.fishagent.core.trace.Spans;
+import com.zheng.fishagent.core.trace.Tracer;
 import com.zheng.fishagent.message.message.*;
 import com.zheng.fishagent.core.message.ToolCall;
 import com.zheng.fishagent.core.prompt.FinalAnswer;

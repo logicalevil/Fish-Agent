@@ -1,6 +1,6 @@
-package com.zheng.fishagent.core.memory.lock;
+package com.zheng.fishagent.core.lock;
 
-import com.zheng.fishagent.core.FishAgentException;
+import com.zheng.fishagent.core.exception.FishAgentException;
 
 import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;

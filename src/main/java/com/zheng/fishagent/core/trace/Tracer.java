@@ -1,4 +1,6 @@
-package com.zheng.fishagent.core.agent;
+package com.zheng.fishagent.core.trace;
+
+import com.zheng.fishagent.core.agent.ReActAgent;
 
 /**
  * 链路追踪的扩展点。

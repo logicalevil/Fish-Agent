@@ -1,4 +1,4 @@
-package com.zheng.fishagent.core.message;
+package com.zheng.fishagent.core.constant;
 
 /**
  * 对话消息角色。

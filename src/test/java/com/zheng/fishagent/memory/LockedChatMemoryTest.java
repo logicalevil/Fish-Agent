@@ -4,7 +4,7 @@ import com.zheng.fishagent.core.memory.ChatMemory;
 import com.zheng.fishagent.core.memory.FileChatMemory;
 import com.zheng.fishagent.core.memory.InMemoryChatMemory;
 import com.zheng.fishagent.core.memory.LockedChatMemory;
-import com.zheng.fishagent.core.memory.lock.MemoryLock;
+import com.zheng.fishagent.core.lock.MemoryLock;
 import com.zheng.fishagent.core.message.message.Message;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

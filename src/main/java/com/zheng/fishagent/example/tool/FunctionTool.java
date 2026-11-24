@@ -1,6 +1,7 @@
-package com.zheng.fishagent.core.tool;
+package com.zheng.fishagent.example.tool;
 
-import com.zheng.fishagent.core.FishAgentException;
+import com.zheng.fishagent.core.exception.FishAgentException;
+import com.zheng.fishagent.core.tool.Tool;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

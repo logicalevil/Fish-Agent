@@ -1,8 +1,8 @@
 package com.zheng.fishagent.core.message.message;
 
-import com.zheng.fishagent.core.message.Role;
+import com.zheng.fishagent.core.constant.Role;
 import com.zheng.fishagent.core.message.ToolCall;
-import com.zheng.fishagent.core.message.constant.MessageKeys;
+import com.zheng.fishagent.core.constant.MessageKeys;
 import com.zheng.fishagent.core.message.content.Content;
 
 import java.util.ArrayList;

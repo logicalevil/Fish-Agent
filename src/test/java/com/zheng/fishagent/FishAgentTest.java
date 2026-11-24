@@ -3,7 +3,7 @@ package com.zheng.fishagent;
 import com.zheng.fishagent.core.agent.Agent;
 import com.zheng.fishagent.core.agent.AgentResult;
 import com.zheng.fishagent.agent.FakeChatModel;
-import com.zheng.fishagent.core.FishAgentException;
+import com.zheng.fishagent.core.exception.FishAgentException;
 import com.zheng.fishagent.core.llm.ChatResponse;
 import com.zheng.fishagent.core.llm.TokenUsage;
 import com.zheng.fishagent.core.message.message.Message;
