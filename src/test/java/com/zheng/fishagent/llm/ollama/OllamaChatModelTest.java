@@ -11,6 +11,7 @@ import com.zheng.fishagent.core.constant.Role;
 import com.zheng.fishagent.core.message.ToolCall;
 import com.zheng.fishagent.core.tool.ToolSpec;
 import com.zheng.fishagent.core.util.Json;
+import com.zheng.fishagent.testkit.Messages;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -96,8 +97,8 @@ class OllamaChatModelTest {
                 }""");
 
         ChatResponse response = model.call(ChatRequest.builder()
-                .message(Message.system("你是助手"))
-                .message(Message.user("6 乘 7"))
+                .message(Messages.system("你是助手"))
+                .message(Messages.user("6 乘 7"))
                 .tools(List.of(multiplySpec()))
                 .build());
 
@@ -131,11 +132,11 @@ class OllamaChatModelTest {
 
         List<String> tokens = new ArrayList<>();
         ChatResponse response = model.stream(
-                ChatRequest.builder().message(Message.user("打个招呼")).build(),
+                ChatRequest.builder().message(Messages.user("打个招呼")).build(),
                 tokens::add);
 
         assertEquals(List.of("你好", "，世界"), tokens);
-        assertEquals("你好，世界", response.message().content());
+        assertEquals("你好，世界", textOf(response.message()));
 
         ToolCall call = response.message().toolCallsCopyOnWrite().getFirst();
         assertEquals("multiply", call.name());
@@ -157,9 +158,9 @@ class OllamaChatModelTest {
                 {"model":"test-model","message":{"role":"assistant","content":"ok"},"done":true}""");
 
         model.call(ChatRequest.builder()
-                .message(Message.user("6 乘 7"))
-                .message(Message.assistant("", List.of(ToolCall.of("multiply", Map.of("a", 6, "b", 7)))))
-                .message(Message.tool("multiply", "42"))
+                .message(Messages.user("6 乘 7"))
+                .message(Messages.assistant("", List.of(ToolCall.of("multiply", Map.of("a", 6, "b", 7)))))
+                .message(Messages.tool("multiply", "42"))
                 .tools(List.of(multiplySpec()))
                 .build());
 
@@ -180,7 +181,7 @@ class OllamaChatModelTest {
         respond("{\"error\":\"model not found\"}");
 
         FishAgentException exception = assertThrows(FishAgentException.class,
-                () -> model.call(ChatRequest.builder().message(Message.user("hi")).build()));
+                () -> model.call(ChatRequest.builder().message(Messages.user("hi")).build()));
 
         assertTrue(exception.getMessage().contains("500"), exception.getMessage());
         assertTrue(exception.getMessage().contains("model not found"), exception.getMessage());
@@ -191,7 +192,7 @@ class OllamaChatModelTest {
         respond("{\"error\":\"pull model first\"}");
 
         FishAgentException exception = assertThrows(FishAgentException.class,
-                () -> model.call(ChatRequest.builder().message(Message.user("hi")).build()));
+                () -> model.call(ChatRequest.builder().message(Messages.user("hi")).build()));
 
         assertTrue(exception.getMessage().contains("pull model first"), exception.getMessage());
     }
@@ -208,11 +209,18 @@ class OllamaChatModelTest {
                 .build();
 
         noToolName.call(ChatRequest.builder()
-                .message(Message.tool("multiply", "42"))
+                .message(Messages.tool("multiply", "42"))
                 .build());
 
         JsonNode toolMessage = Json.mapper().readTree(capturedRequest.get()).path("messages").get(0);
         assertEquals(Role.TOOL.value(), toolMessage.path("role").asText());
         assertTrue(toolMessage.path("tool_name").isMissingNode());
+    }
+
+    /** 消息正文的纯文本，便于断言。 */
+    private static String textOf(Message message) {
+        StringBuilder sb = new StringBuilder();
+        message.contentList().forEach(content -> sb.append(content.text()));
+        return sb.toString();
     }
 }

@@ -6,14 +6,15 @@ import com.zheng.fishagent.agent.FakeChatModel;
 import com.zheng.fishagent.core.exception.FishAgentException;
 import com.zheng.fishagent.core.llm.ChatResponse;
 import com.zheng.fishagent.core.llm.TokenUsage;
-import com.zheng.fishagent.core.message.message.Message;
 import com.zheng.fishagent.core.message.ToolCall;
 import com.zheng.fishagent.core.tool.annotation.AgentTool;
 import com.zheng.fishagent.core.tool.annotation.ToolParam;
+import com.zheng.fishagent.testkit.Messages;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -35,7 +36,7 @@ class FishAgentTest {
     void 门面应组装模型工具与记忆并完成一轮工具调用() {
         FakeChatModel model = new FakeChatModel()
                 .then(new ChatResponse(
-                        Message.assistant("", List.of(ToolCall.of("add", Map.of("a", 1, "b", 2)))),
+                        Messages.assistant("", List.of(ToolCall.of("add", Map.of("a", 1, "b", 2)))),
                         new TokenUsage(10, 5),
                         "stop"))
                 .thenText("答案是 3");
@@ -52,7 +53,8 @@ class FishAgentTest {
         assertTrue(result.success());
         assertEquals("答案是 3", result.text());
         assertEquals(2, result.iterations());
-        assertEquals("facade-test", agent.memory().id());
+        // 视图是读写记忆的唯一入口：一轮工具调用应留下 user / assistant / tool / assistant 四条
+        assertEquals(4, agent.memoryView().history().size());
     }
 
     @Test

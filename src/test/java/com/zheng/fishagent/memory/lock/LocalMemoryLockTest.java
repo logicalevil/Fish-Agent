@@ -1,7 +1,7 @@
 package com.zheng.fishagent.memory.lock;
 
 import com.zheng.fishagent.core.exception.FishAgentException;
-import com.zheng.fishagent.core.memory.lock.LocalMemoryLock;
+import com.zheng.fishagent.core.memory.AgentRunScope;
 import com.zheng.fishagent.core.lock.MemoryLock;
 import org.junit.jupiter.api.Test;
 
@@ -14,13 +14,18 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LocalMemoryLockTest {
 
     private static final Duration WAIT = Duration.ofSeconds(5);
+
+    /** 以字符串作为唯一分区键的测试作用域。 */
+    private static AgentRunScope scope(String key) {
+        return () -> key;
+    }
 
     @Test
     void 默认工厂应返回非分布式实现() {
@@ -33,7 +38,7 @@ class LocalMemoryLockTest {
     void 应返回动作的执行结果() {
         MemoryLock lock = MemoryLock.local();
 
-        String result = lock.execute("s1", WAIT, () -> "答案");
+        String result = lock.execute(scope("s1"), WAIT, () -> "答案");
 
         assertEquals("答案", result);
     }
@@ -49,7 +54,7 @@ class LocalMemoryLockTest {
         Runnable task = () -> {
             try {
                 start.await();
-                lock.execute("same", WAIT, () -> {
+                lock.execute(scope("same"), WAIT, () -> {
                     if (inside.incrementAndGet() > 1) {
                         overlapped.set(true);
                     }
@@ -85,7 +90,7 @@ class LocalMemoryLockTest {
         CountDownLatch releaseFirst = new CountDownLatch(1);
         AtomicBoolean secondEntered = new AtomicBoolean(false);
 
-        Thread first = new Thread(() -> lock.execute("a", WAIT, () -> {
+        Thread first = new Thread(() -> lock.execute(scope("a"), WAIT, () -> {
             firstInside.countDown();
             try {
                 releaseFirst.await(10, TimeUnit.SECONDS);
@@ -97,7 +102,7 @@ class LocalMemoryLockTest {
         first.start();
         assertTrue(firstInside.await(10, TimeUnit.SECONDS));
 
-        lock.execute("b", Duration.ofMillis(500), () -> {
+        lock.execute(scope("b"), Duration.ofMillis(500), () -> {
             secondEntered.set(true);
             return null;
         });
@@ -114,7 +119,7 @@ class LocalMemoryLockTest {
         CountDownLatch release = new CountDownLatch(1);
         AtomicBoolean actionRan = new AtomicBoolean(false);
 
-        Thread holder = new Thread(() -> lock.execute("busy", WAIT, () -> {
+        Thread holder = new Thread(() -> lock.execute(scope("busy"), WAIT, () -> {
             held.countDown();
             try {
                 release.await(10, TimeUnit.SECONDS);
@@ -127,7 +132,7 @@ class LocalMemoryLockTest {
         assertTrue(held.await(10, TimeUnit.SECONDS));
 
         FishAgentException error = assertThrows(FishAgentException.class,
-                () -> lock.execute("busy", Duration.ofMillis(100), () -> {
+                () -> lock.execute(scope("busy"), Duration.ofMillis(100), () -> {
                     actionRan.set(true);
                     return null;
                 }));
@@ -143,12 +148,12 @@ class LocalMemoryLockTest {
     void 动作抛异常时锁应被释放() {
         MemoryLock lock = MemoryLock.local();
 
-        assertThrows(IllegalStateException.class, () -> lock.execute("s1", WAIT, () -> {
+        assertThrows(IllegalStateException.class, () -> lock.execute(scope("s1"), WAIT, () -> {
             throw new IllegalStateException("boom");
         }));
 
         // 能再次取到锁即说明前一次已释放
-        assertEquals("ok", lock.execute("s1", Duration.ofMillis(100), () -> "ok"));
+        assertEquals("ok", lock.execute(scope("s1"), Duration.ofMillis(100), () -> "ok"));
     }
 
     @Test
@@ -157,7 +162,7 @@ class LocalMemoryLockTest {
         CountDownLatch held = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
 
-        Thread holder = new Thread(() -> lock.execute("busy", WAIT, () -> {
+        Thread holder = new Thread(() -> lock.execute(scope("busy"), WAIT, () -> {
             held.countDown();
             try {
                 release.await(10, TimeUnit.SECONDS);
@@ -169,7 +174,8 @@ class LocalMemoryLockTest {
         holder.start();
         assertTrue(held.await(10, TimeUnit.SECONDS));
 
-        assertThrows(FishAgentException.class, () -> lock.execute("busy", Duration.ZERO, () -> "never"));
+        assertThrows(FishAgentException.class,
+                () -> lock.execute(scope("busy"), Duration.ZERO, () -> "never"));
 
         release.countDown();
         holder.join(10_000);
@@ -181,7 +187,7 @@ class LocalMemoryLockTest {
         CountDownLatch held = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
 
-        Thread holder = new Thread(() -> lock.execute("busy", WAIT, () -> {
+        Thread holder = new Thread(() -> lock.execute(scope("busy"), WAIT, () -> {
             held.countDown();
             try {
                 release.await(10, TimeUnit.SECONDS);
@@ -193,7 +199,7 @@ class LocalMemoryLockTest {
         holder.start();
         assertTrue(held.await(10, TimeUnit.SECONDS));
 
-        assertThrows(FishAgentException.class, () -> lock.execute("busy", null, () -> "never"));
+        assertThrows(FishAgentException.class, () -> lock.execute(scope("busy"), null, () -> "never"));
 
         release.countDown();
         holder.join(10_000);
@@ -204,13 +210,26 @@ class LocalMemoryLockTest {
         MemoryLock lock = MemoryLock.local();
 
         FishAgentException error = assertThrows(FishAgentException.class,
-                () -> lock.execute("s1", WAIT, null));
+                () -> lock.execute(scope("s1"), WAIT, null));
 
         assertTrue(error.getMessage().contains("动作"));
     }
 
     @Test
     void 资源标识为空时仍可用() {
+        MemoryLock lock = MemoryLock.local();
+
+        AtomicReference<String> seen = new AtomicReference<>();
+        lock.execute(scope(""), WAIT, () -> {
+            seen.set("ran");
+            return null;
+        });
+
+        assertEquals("ran", seen.get());
+    }
+
+    @Test
+    void 作用域为null时仍可用() {
         MemoryLock lock = MemoryLock.local();
 
         AtomicReference<String> seen = new AtomicReference<>();
@@ -227,7 +246,7 @@ class LocalMemoryLockTest {
         MemoryLock a = MemoryLock.local();
         MemoryLock b = MemoryLock.local();
 
-        assertInstanceOf(LocalMemoryLock.class, a);
-        assertFalse(a == b, "每次调用应返回新实例");
+        assertFalse(a.isDistributed());
+        assertNotSame(a, b, "每次调用应返回新实例");
     }
 }

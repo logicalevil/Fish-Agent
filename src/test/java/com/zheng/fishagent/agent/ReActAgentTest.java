@@ -6,7 +6,6 @@ import com.zheng.fishagent.core.agent.ReActAgent;
 import com.zheng.fishagent.core.constant.ToolCallMode;
 import com.zheng.fishagent.core.llm.ChatResponse;
 import com.zheng.fishagent.core.llm.TokenUsage;
-import com.zheng.fishagent.core.memory.InMemoryChatMemory;
 import com.zheng.fishagent.core.message.message.Message;
 import com.zheng.fishagent.core.message.message.ToolMessage;
 import com.zheng.fishagent.core.constant.Role;
@@ -14,6 +13,7 @@ import com.zheng.fishagent.core.message.ToolCall;
 import com.zheng.fishagent.core.tool.ToolRegistry;
 import com.zheng.fishagent.core.tool.annotation.AgentTool;
 import com.zheng.fishagent.core.tool.annotation.ToolParam;
+import com.zheng.fishagent.testkit.Messages;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -30,7 +30,7 @@ class ReActAgentTest {
     void 原生模式应执行工具并把结果回填后给出答案() {
         FakeChatModel model = new FakeChatModel()
                 .then(new ChatResponse(
-                        Message.assistant("", List.of(ToolCall.of("multiply", Map.of("a", 6, "b", 7)))),
+                        Messages.assistant("", List.of(ToolCall.of("multiply", Map.of("a", 6, "b", 7)))),
                         TokenUsage.EMPTY,
                         "stop"))
                 .thenText("结果是 42。");
@@ -38,7 +38,7 @@ class ReActAgentTest {
         ReActAgent agent = ReActAgent.builder()
                 .model(model)
                 .tools(new ToolRegistry().register(new MathTools()))
-                .memory(new InMemoryChatMemory("native"))
+                .sessionId("native")
                 .streaming(false)
                 .build();
 
@@ -58,10 +58,10 @@ class ReActAgentTest {
         Message toolMessage = secondRound.getLast();
         assertEquals(Role.TOOL, toolMessage.role());
         assertEquals("multiply", ((ToolMessage) toolMessage).toolName());
-        assertEquals("42", toolMessage.content());
+        assertEquals("42", textOf(toolMessage));
 
         // 记忆里应有 user / assistant(toolCall) / tool / assistant 四条
-        assertEquals(4, agent.memory().messages().size());
+        assertEquals(4, agent.memoryView().history().size());
     }
 
     @Test
@@ -78,7 +78,7 @@ class ReActAgentTest {
         ReActAgent agent = ReActAgent.builder()
                 .model(model)
                 .tools(new ToolRegistry().register(new MathTools()))
-                .memory(new InMemoryChatMemory("react"))
+                .sessionId("react")
                 .mode(ToolCallMode.REACT_TEXT)
                 .streaming(false)
                 .build();
@@ -93,7 +93,7 @@ class ReActAgentTest {
 
         Message observation = model.requests().get(1).messages().getLast();
         assertEquals(Role.USER, observation.role());
-        assertTrue(observation.content().startsWith("Observation: 15"), observation.content());
+        assertTrue(textOf(observation).startsWith("Observation: 15"), textOf(observation));
     }
 
     @Test
@@ -131,7 +131,7 @@ class ReActAgentTest {
         FakeChatModel model = new FakeChatModel();
         for (int i = 0; i < 5; i++) {
             model.then(new ChatResponse(
-                    Message.assistant("再确认一次", List.of(ToolCall.of("multiply", Map.of("a", i, "b", 2)))),
+                    Messages.assistant("再确认一次", List.of(ToolCall.of("multiply", Map.of("a", i, "b", 2)))),
                     TokenUsage.EMPTY,
                     "stop"));
         }
@@ -155,7 +155,7 @@ class ReActAgentTest {
         FakeChatModel model = new FakeChatModel();
         for (int i = 0; i < 5; i++) {
             model.then(new ChatResponse(
-                    Message.assistant("", List.of(ToolCall.of("multiply", Map.of("a", 1, "b", 1)))),
+                    Messages.assistant("", List.of(ToolCall.of("multiply", Map.of("a", 1, "b", 1)))),
                     TokenUsage.EMPTY,
                     "stop"));
         }
@@ -179,7 +179,7 @@ class ReActAgentTest {
     void 累计Token用量应跨轮次相加() {
         FakeChatModel model = new FakeChatModel()
                 .then(new ChatResponse(
-                        Message.assistant("", List.of(ToolCall.of("multiply", Map.of("a", 1, "b", 2)))),
+                        Messages.assistant("", List.of(ToolCall.of("multiply", Map.of("a", 1, "b", 2)))),
                         new TokenUsage(100, 10),
                         "stop"))
                 .thenText("2");
@@ -194,6 +194,13 @@ class ReActAgentTest {
 
         // 第一轮 100+10，第二轮由 FakeChatModel.thenText 计为 1+1
         assertEquals(112, result.usage().totalTokens());
+    }
+
+    /** 消息正文的纯文本，便于断言。 */
+    private static String textOf(Message message) {
+        StringBuilder sb = new StringBuilder();
+        message.contentList().forEach(content -> sb.append(content.text()));
+        return sb.toString();
     }
 
     static class MathTools {

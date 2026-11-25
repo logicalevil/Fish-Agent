@@ -7,6 +7,7 @@ import com.zheng.fishagent.core.memory.LockedChatMemory;
 import com.zheng.fishagent.core.memory.MessageWindowChatMemory;
 import com.zheng.fishagent.core.lock.MemoryLock;
 import com.zheng.fishagent.core.message.message.Message;
+import com.zheng.fishagent.testkit.Messages;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -28,63 +29,70 @@ class MemoryLockCompositionTest {
         return () -> sessionId;
     }
 
+    /** 消息正文的纯文本，便于断言。 */
+    private static String textOf(Message message) {
+        StringBuilder sb = new StringBuilder();
+        message.contentList().forEach(content -> sb.append(content.text()));
+        return sb.toString();
+    }
+
     @Test
     void 锁在窗口外层时应同时生效(@TempDir Path tempDir) {
-        FileChatMemory file = FileChatMemory.of("c1", tempDir, scope("c1"));
+        FileChatMemory file = FileChatMemory.of(tempDir, scope("c1"));
         ChatMemory memory = LockedChatMemory.wrap(
-                MessageWindowChatMemory.windowing(file, 3), MemoryLock.local());
+                MessageWindowChatMemory.windowing(file, 3), MemoryLock.local(), scope("c1"));
 
         for (int i = 1; i <= 5; i++) {
-            memory.add(Message.user("q" + i));
+            memory.add(Messages.user("q" + i));
         }
 
         List<Message> window = memory.messages();
         assertEquals(3, window.size(), "窗口裁剪应生效");
-        assertEquals("q3", window.getFirst().content());
+        assertEquals("q3", textOf(window.getFirst()));
         assertEquals(5, file.size(), "锁不应影响底层全量存储");
     }
 
     @Test
     void 窗口在锁外层时应同时生效(@TempDir Path tempDir) {
-        FileChatMemory file = FileChatMemory.of("c2", tempDir, scope("c2"));
+        FileChatMemory file = FileChatMemory.of(tempDir, scope("c2"));
         ChatMemory memory = MessageWindowChatMemory.windowing(
-                LockedChatMemory.wrap(file, MemoryLock.local()), 3);
+                LockedChatMemory.wrap(file, MemoryLock.local(), scope("c2")), 3);
 
         for (int i = 1; i <= 5; i++) {
-            memory.add(Message.user("q" + i));
+            memory.add(Messages.user("q" + i));
         }
 
         List<Message> window = memory.messages();
         assertEquals(3, window.size(), "窗口裁剪应生效");
-        assertEquals("q3", window.getFirst().content());
+        assertEquals("q3", textOf(window.getFirst()));
         assertEquals(5, file.size());
     }
 
     @Test
     void 两种嵌套顺序结果应一致(@TempDir Path tempDir) {
-        FileChatMemory fileA = FileChatMemory.of("a", tempDir, scope("a"));
+        FileChatMemory fileA = FileChatMemory.of(tempDir, scope("a"));
         ChatMemory outerLock = LockedChatMemory.wrap(
-                MessageWindowChatMemory.windowing(fileA, 3), new CountingMemoryLock());
+                MessageWindowChatMemory.windowing(fileA, 3), new CountingMemoryLock(), scope("a"));
 
-        FileChatMemory fileB = FileChatMemory.of("b", tempDir, scope("b"));
+        FileChatMemory fileB = FileChatMemory.of(tempDir, scope("b"));
         ChatMemory outerWindow = MessageWindowChatMemory.windowing(
-                LockedChatMemory.wrap(fileB, new CountingMemoryLock()), 3);
+                LockedChatMemory.wrap(fileB, new CountingMemoryLock(), scope("b")), 3);
 
         for (int i = 1; i <= 5; i++) {
-            outerLock.add(Message.user("q" + i));
-            outerWindow.add(Message.user("q" + i));
+            outerLock.add(Messages.user("q" + i));
+            outerWindow.add(Messages.user("q" + i));
         }
 
         assertEquals(outerLock.messages().size(), outerWindow.messages().size());
         assertEquals(
-                outerLock.messages().stream().map(Message::content).toList(),
-                outerWindow.messages().stream().map(Message::content).toList());
+                outerLock.messages().stream().map(ChatMemoryCompositionTestSupport::textOf).toList(),
+                outerWindow.messages().stream().map(ChatMemoryCompositionTestSupport::textOf).toList());
     }
 
     @Test
     void 未配置锁时并发写入应被串行化(@TempDir Path tempDir) throws Exception {
         // 默认构造回退 MemoryLock.local()
-        FileChatMemory memory = FileChatMemory.of("concurrent", tempDir, scope("concurrent"));
+        FileChatMemory memory = FileChatMemory.of(tempDir, scope("concurrent"));
         int threads = 8;
         int perThread = 20;
 
@@ -97,7 +105,7 @@ class MemoryLockCompositionTest {
                     try {
                         start.await();
                         for (int i = 0; i < perThread; i++) {
-                            memory.add(Message.user("t" + id + "-" + i));
+                            memory.add(Messages.user("t" + id + "-" + i));
                         }
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
@@ -128,6 +136,13 @@ class MemoryLockCompositionTest {
         public <T> T execute(AgentRunScope agentRunScope, Duration timeout, Supplier<T> action) {
             calls.incrementAndGet();
             return action.get();
+        }
+    }
+
+    /** 供方法引用使用的文本提取工具。 */
+    private static final class ChatMemoryCompositionTestSupport {
+        private static String textOf(Message message) {
+            return MemoryLockCompositionTest.textOf(message);
         }
     }
 }

@@ -6,12 +6,10 @@ import com.zheng.fishagent.core.memory.FileChatMemory;
 import com.zheng.fishagent.core.memory.InMemoryChatMemory;
 import com.zheng.fishagent.core.memory.MessageWindowChatMemory;
 import com.zheng.fishagent.core.message.ToolCall;
-import com.zheng.fishagent.core.message.content.TextContent;
 import com.zheng.fishagent.core.message.message.AssistantMessage;
 import com.zheng.fishagent.core.message.message.Message;
-import com.zheng.fishagent.core.message.message.SystemMessage;
 import com.zheng.fishagent.core.message.message.ToolMessage;
-import com.zheng.fishagent.core.message.message.UserMessage;
+import com.zheng.fishagent.testkit.Messages;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -30,18 +28,6 @@ class ChatMemoryTest {
         return () -> sessionId;
     }
 
-    private static UserMessage user(String text) {
-        return new UserMessage(List.of(new TextContent(text)));
-    }
-
-    private static SystemMessage system(String text) {
-        return new SystemMessage(List.of(new TextContent(text)));
-    }
-
-    private static AssistantMessage assistant(String text) {
-        return new AssistantMessage(List.of(new TextContent(text)), List.of());
-    }
-
     /** 消息正文的纯文本，便于断言。 */
     private static String textOf(Message message) {
         StringBuilder sb = new StringBuilder();
@@ -50,11 +36,11 @@ class ChatMemoryTest {
     }
 
     @Test
-    void 窗口记忆应保留系统消息与最近N条(@TempDir Path tempDir) {
+    void 窗口记忆应保留系统消息与最近N条() {
         MessageWindowChatMemory memory = MessageWindowChatMemory.of("window", 3);
-        memory.add(system("你是助手"));
+        memory.add(Messages.system("你是助手"));
         for (int i = 1; i <= 6; i++) {
-            memory.add(user("问题" + i));
+            memory.add(Messages.user("问题" + i));
         }
 
         List<Message> window = memory.messages();
@@ -68,15 +54,14 @@ class ChatMemoryTest {
 
     @Test
     void 文件记忆应能持久化并重新加载(@TempDir Path tempDir) {
-        FileChatMemory memory = FileChatMemory.of("tester", tempDir, scope("tester"));
-        memory.add(user("你好"));
-        memory.add(new AssistantMessage(List.of(new TextContent("")),
-                List.of(ToolCall.of("calculate", Map.of("expression", "1+1")))));
-        memory.add(new ToolMessage(List.of(new TextContent("2")), "call-1", "calculate"));
+        FileChatMemory memory = FileChatMemory.of(tempDir, scope("tester"));
+        memory.add(Messages.user("你好"));
+        memory.add(Messages.assistant("", List.of(ToolCall.of("calculate", Map.of("expression", "1+1")))));
+        memory.add(Messages.tool("call-1", "calculate", "2"));
 
         assertTrue(Files.exists(memory.file()));
 
-        FileChatMemory reloaded = FileChatMemory.of("tester", tempDir, scope("tester"));
+        FileChatMemory reloaded = FileChatMemory.of(tempDir, scope("tester"));
         List<Message> messages = reloaded.messages();
 
         assertEquals(3, messages.size());
@@ -89,8 +74,8 @@ class ChatMemoryTest {
 
     @Test
     void 清空后应删除会话文件(@TempDir Path tempDir) {
-        FileChatMemory memory = FileChatMemory.of("to-clear", tempDir, scope("to-clear"));
-        memory.add(user("hi"));
+        FileChatMemory memory = FileChatMemory.of(tempDir, scope("to-clear"));
+        memory.add(Messages.user("hi"));
         memory.clear();
 
         assertTrue(memory.isEmpty());
@@ -99,8 +84,8 @@ class ChatMemoryTest {
 
     @Test
     void 内存记忆应支持多轮追加() {
-        ChatMemory memory = new InMemoryChatMemory("memory");
-        memory.addAll(List.of(user("a"), assistant("b")));
+        ChatMemory memory = new InMemoryChatMemory("memory", scope("memory"));
+        memory.addAll(List.of(Messages.user("a"), Messages.assistant("b")));
 
         assertEquals(2, memory.size());
         memory.clear();

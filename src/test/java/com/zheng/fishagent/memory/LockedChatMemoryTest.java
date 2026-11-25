@@ -7,6 +7,7 @@ import com.zheng.fishagent.core.memory.InMemoryChatMemory;
 import com.zheng.fishagent.core.memory.LockedChatMemory;
 import com.zheng.fishagent.core.lock.MemoryLock;
 import com.zheng.fishagent.core.message.message.Message;
+import com.zheng.fishagent.testkit.Messages;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -16,8 +17,6 @@ import java.util.List;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -27,23 +26,24 @@ class LockedChatMemoryTest {
         return () -> sessionId;
     }
 
-    @Test
-    void 标识应透传底层() {
-        LockedChatMemory memory = LockedChatMemory.wrap(new InMemoryChatMemory("s1"), MemoryLock.local());
-
-        assertEquals("s1", memory.id());
+    /** 消息正文的纯文本，便于断言。 */
+    private static String textOf(Message message) {
+        StringBuilder sb = new StringBuilder();
+        message.contentList().forEach(content -> sb.append(content.text()));
+        return sb.toString();
     }
 
     @Test
     void 装饰后语义应与裸记忆一致() {
-        ChatMemory bare = new InMemoryChatMemory("s1");
-        LockedChatMemory locked = LockedChatMemory.wrap(new InMemoryChatMemory("s1"), MemoryLock.local());
+        ChatMemory bare = new InMemoryChatMemory("s1", scope("s1"));
+        LockedChatMemory locked = LockedChatMemory.wrap(
+                new InMemoryChatMemory("s1", scope("s1")), MemoryLock.local(), scope("s1"));
 
-        bare.add(Message.user("你好"));
-        locked.add(Message.user("你好"));
+        bare.add(Messages.user("你好"));
+        locked.add(Messages.user("你好"));
 
         assertEquals(bare.size(), locked.size());
-        assertEquals(bare.messages().getFirst().content(), locked.messages().getFirst().content());
+        assertEquals(textOf(bare.messages().getFirst()), textOf(locked.messages().getFirst()));
 
         bare.clear();
         locked.clear();
@@ -53,9 +53,10 @@ class LockedChatMemoryTest {
     @Test
     void 三种操作都应经过锁() {
         RecordingMemoryLock lock = new RecordingMemoryLock();
-        LockedChatMemory memory = LockedChatMemory.wrap(new InMemoryChatMemory("s1"), lock);
+        LockedChatMemory memory = LockedChatMemory.wrap(
+                new InMemoryChatMemory("s1", scope("s1")), lock, scope("s1"));
 
-        memory.add(Message.user("a"));
+        memory.add(Messages.user("a"));
         memory.messages();
         memory.clear();
 
@@ -66,10 +67,11 @@ class LockedChatMemoryTest {
     @Test
     void 应复用注入的同一个锁实例() {
         RecordingMemoryLock lock = new RecordingMemoryLock();
-        LockedChatMemory memory = LockedChatMemory.wrap(new InMemoryChatMemory("s1"), lock);
+        LockedChatMemory memory = LockedChatMemory.wrap(
+                new InMemoryChatMemory("s1", scope("s1")), lock, scope("s1"));
 
-        memory.add(Message.user("a"));
-        memory.add(Message.user("b"));
+        memory.add(Messages.user("a"));
+        memory.add(Messages.user("b"));
 
         assertSame(lock, memory.lock());
         assertEquals(2, lock.calls.get());
@@ -77,8 +79,9 @@ class LockedChatMemoryTest {
 
     @Test
     void 重复包裹应被避免() {
-        LockedChatMemory first = LockedChatMemory.wrap(new InMemoryChatMemory("s1"), MemoryLock.local());
-        LockedChatMemory second = LockedChatMemory.wrap(first, MemoryLock.local());
+        LockedChatMemory first = LockedChatMemory.wrap(
+                new InMemoryChatMemory("s1", scope("s1")), MemoryLock.local(), scope("s1"));
+        LockedChatMemory second = LockedChatMemory.wrap(first, MemoryLock.local(), scope("s1"));
 
         assertSame(first, second, "已是 LockedChatMemory 时不应再包一层");
     }
@@ -86,29 +89,20 @@ class LockedChatMemoryTest {
     @Test
     void 重复包裹时不应叠加加锁() {
         RecordingMemoryLock inner = new RecordingMemoryLock();
-        LockedChatMemory first = LockedChatMemory.wrap(new InMemoryChatMemory("s1"), inner);
+        LockedChatMemory first = LockedChatMemory.wrap(
+                new InMemoryChatMemory("s1", scope("s1")), inner, scope("s1"));
 
-        LockedChatMemory second = LockedChatMemory.wrap(first, new RecordingMemoryLock());
-        second.add(Message.user("a"));
+        LockedChatMemory second = LockedChatMemory.wrap(first, new RecordingMemoryLock(), scope("s1"));
+        second.add(Messages.user("a"));
 
         assertEquals(1, inner.calls.get());
     }
 
     @Test
-    void tostring应包含标识与锁类型() {
-        LockedChatMemory memory = LockedChatMemory.wrap(new InMemoryChatMemory("s1"), MemoryLock.local());
-
-        String text = memory.toString();
-
-        assertTrue(text.contains("s1"));
-        assertTrue(text.contains("LocalMemoryLock"));
-    }
-
-    @Test
     void 应暴露被包装的记忆与锁() {
-        InMemoryChatMemory bare = new InMemoryChatMemory("s1");
+        InMemoryChatMemory bare = new InMemoryChatMemory("s1", scope("s1"));
         MemoryLock lock = MemoryLock.local();
-        LockedChatMemory memory = LockedChatMemory.wrap(bare, lock);
+        LockedChatMemory memory = LockedChatMemory.wrap(bare, lock, scope("s1"));
 
         assertSame(bare, memory.delegate());
         assertSame(lock, memory.lock());
@@ -116,14 +110,14 @@ class LockedChatMemoryTest {
 
     @Test
     void 包装文件记忆应仍能持久化(@TempDir Path tempDir) {
-        FileChatMemory file = FileChatMemory.of("s1", tempDir, scope("s1"));
-        LockedChatMemory memory = LockedChatMemory.wrap(file, MemoryLock.local());
+        FileChatMemory file = FileChatMemory.of(tempDir, scope("s1"));
+        LockedChatMemory memory = LockedChatMemory.wrap(file, MemoryLock.local(), scope("s1"));
 
-        memory.add(Message.user("持久化"));
+        memory.add(Messages.user("持久化"));
 
-        FileChatMemory reloaded = FileChatMemory.of("s1", tempDir, scope("s1"));
+        FileChatMemory reloaded = FileChatMemory.of(tempDir, scope("s1"));
         assertEquals(1, reloaded.size());
-        assertEquals("持久化", reloaded.messages().getFirst().content());
+        assertEquals("持久化", textOf(reloaded.messages().getFirst()));
     }
 
     /** 记录进入临界区的次数与资源标识的测试替身。 */
