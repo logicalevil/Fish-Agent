@@ -104,7 +104,7 @@ public final class ConsoleChat {
                         continue;
                     }
                     case "/history" -> {
-                        agent.memory().messages().forEach(m ->
+                        agent.memoryView().history().forEach(m ->
                                 System.out.println("  [" + m.role().value() + "] " + preview(m.allMessage())));
                         continue;
                     }

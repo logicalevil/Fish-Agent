@@ -34,7 +34,7 @@ public class InMemoryChatMemory implements ChatMemory {
      * 以随机生成的会话标识与默认锁创建。
      */
     public InMemoryChatMemory(AgentRunScope agentRunScope) {
-        this("session-" + UUID.randomUUID(), agentRunScope);
+        this(agentRunScope, "session-" + UUID.randomUUID(), MemoryLock.local());
     }
 
     /**
@@ -42,6 +42,13 @@ public class InMemoryChatMemory implements ChatMemory {
      */
     public InMemoryChatMemory(String id, AgentRunScope agentRunScope) {
         this(agentRunScope, id, MemoryLock.local());
+    }
+
+    /**
+     * 使用给定作用域与默认锁创建。
+     */
+    public InMemoryChatMemory(AgentRunScope agentRunScope, MemoryLock lock) {
+        this(agentRunScope, null, lock);
     }
 
     /**

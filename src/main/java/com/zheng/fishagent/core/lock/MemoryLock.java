@@ -2,7 +2,6 @@ package com.zheng.fishagent.core.lock;
 
 import com.zheng.fishagent.core.exception.FishAgentException;
 import com.zheng.fishagent.core.memory.AgentRunScope;
-import com.zheng.fishagent.core.memory.ChatMemory;
 
 import java.time.Duration;
 import java.util.function.Supplier;
@@ -10,8 +9,10 @@ import java.util.function.Supplier;
 /**
  * 记忆层的互斥扩展点。
  * <p>
- * 框架内所有 {@link ChatMemory} 实现的并发保护都经由本接口，
+ * 框架内所有记忆实现的并发保护都经由本接口，
  * 记忆实现自身不再依赖 {@code synchronized} 或底层集合的线程安全语义。
+ * 当前主要消费者是 {@link com.zheng.fishagent.core.memory.DelegateMemoryView}：
+ * 它用同一把锁保护「落库 + 内存缓冲」的读写一致性。
  * <p>
  * 框架只提供基于 {@link java.util.concurrent.locks.ReentrantLock} 的本地实现
  * （{@link #local()}），它仅在<b>当前 JVM 内</b>提供互斥。当同一份记忆会被多个实例
@@ -42,7 +43,8 @@ public interface MemoryLock {
     /**
      * 在锁内执行动作。资源的获取与释放由实现负责配对，调用方无需关心。
      *
-     * @param resource 被保护的资源标识，通常是 {@link ChatMemory#id()}
+     * @param agentRunScope 被保护资源的范围，其 {@link AgentRunScope#toKey()} 作为互斥键，
+     *                      通常是会话标识；为 {@code null} 时归入同一个默认分区
      * @param timeout  获取锁的最长等待时间
      * @param action   临界区内的动作
      * @param <T>      动作的返回类型

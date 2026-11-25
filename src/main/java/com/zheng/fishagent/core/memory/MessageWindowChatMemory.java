@@ -25,14 +25,25 @@ public final class MessageWindowChatMemory implements ChatMemory {
      * 以新生成的会话标识创建，底层为 {@link InMemoryChatMemory}。
      */
     public static MessageWindowChatMemory of(int maxMessages) {
-        return new MessageWindowChatMemory(new InMemoryChatMemory(), maxMessages);
+        return new MessageWindowChatMemory(new InMemoryChatMemory(newSessionScope()), maxMessages);
     }
 
     /**
      * 以指定会话标识创建，底层为 {@link InMemoryChatMemory}。
      */
     public static MessageWindowChatMemory of(String id, int maxMessages) {
-        return new MessageWindowChatMemory(new InMemoryChatMemory(id), maxMessages);
+        return new MessageWindowChatMemory(new InMemoryChatMemory(id, newSessionScope(id)), maxMessages);
+    }
+
+    /**
+     * 为一个新会话生成独立的作用域，使不同窗口实例之间互不干扰。
+     */
+    private static AgentRunScope newSessionScope() {
+        return newSessionScope("session-" + java.util.UUID.randomUUID());
+    }
+
+    private static AgentRunScope newSessionScope(String sessionId) {
+        return new DefaultAgentRunScope(sessionId, null, null, null);
     }
 
     /**
@@ -60,11 +71,6 @@ public final class MessageWindowChatMemory implements ChatMemory {
      */
     public List<Message> fullHistory() {
         return delegate.messages();
-    }
-
-    @Override
-    public String id() {
-        return delegate.id();
     }
 
     @Override

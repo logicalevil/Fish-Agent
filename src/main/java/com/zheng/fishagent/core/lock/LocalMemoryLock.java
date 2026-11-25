@@ -33,7 +33,9 @@ final class LocalMemoryLock implements MemoryLock {
         if (action == null) {
             throw new FishAgentException("记忆锁动作不能为空");
         }
-        String key = StringUtil.isBlank(agentRunScope.toKey()) ? "" : agentRunScope.toKey();
+        // 作用域缺失时归到同一个默认分区，而不是直接 NPE：加锁失败不该让整个 run 崩掉
+        String scoped = agentRunScope == null ? null : agentRunScope.toKey();
+        String key = StringUtil.isBlank(scoped) ? "" : scoped;
         ReentrantLock lock = locks.computeIfAbsent(key, k -> new ReentrantLock());
         boolean acquired;
         try {

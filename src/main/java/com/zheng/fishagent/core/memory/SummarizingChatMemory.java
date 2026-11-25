@@ -4,7 +4,10 @@ import com.zheng.fishagent.core.exception.FishAgentException;
 import com.zheng.fishagent.core.llm.ChatModel;
 import com.zheng.fishagent.core.llm.ChatRequest;
 import com.zheng.fishagent.core.llm.ChatResponse;
+import com.zheng.fishagent.core.message.content.Content;
+import com.zheng.fishagent.core.message.content.TextContent;
 import com.zheng.fishagent.core.message.message.Message;
+import com.zheng.fishagent.core.message.message.UserMessage;
 import com.zheng.fishagent.core.constant.Role;
 
 import java.util.ArrayList;
@@ -182,11 +185,6 @@ public final class SummarizingChatMemory implements ChatMemory {
     }
 
     @Override
-    public String id() {
-        return delegate.id();
-    }
-
-    @Override
     public void add(Message message) {
         if (message == null) {
             return;
@@ -262,7 +260,7 @@ public final class SummarizingChatMemory implements ChatMemory {
 
         String prompt = SUMMARY_PROMPT_TEMPLATE.formatted(render(inputs));
         ChatResponse response = model.call(ChatRequest.builder()
-                .message(Message.user(prompt))
+                .message(new UserMessage(List.of(new TextContent(prompt))))
                 .build());
         return response == null || response.text() == null ? null : response.text().strip();
     }
@@ -275,7 +273,7 @@ public final class SummarizingChatMemory implements ChatMemory {
     private static String render(List<Message> messages) {
         StringBuilder sb = new StringBuilder();
         for (Message message : messages) {
-            sb.append(label(message.role())).append(truncate(message.content())).append("\n\n");
+            sb.append(label(message.role())).append(truncate(textOf(message))).append("\n\n");
         }
         return sb.toString().strip();
     }
@@ -300,7 +298,19 @@ public final class SummarizingChatMemory implements ChatMemory {
 
     /** 构造摘要消息：USER 角色 + 固定前缀，便于识别这是摘要而非真实输入。 */
     private static Message summaryMessage(String summary) {
-        return Message.user(SUMMARY_PREFIX + "\n\n" + summary);
+        return new UserMessage(List.of(new TextContent(SUMMARY_PREFIX + "\n\n" + summary)));
+    }
+
+    /** 消息正文的纯文本表示：各内容块的 {@code text()} 顺序拼接。 */
+    private static String textOf(Message message) {
+        StringBuilder sb = new StringBuilder();
+        for (Content content : message.contentList()) {
+            String value = content == null ? null : content.text();
+            if (value != null) {
+                sb.append(value);
+            }
+        }
+        return sb.toString();
     }
 
     /**
@@ -328,8 +338,7 @@ public final class SummarizingChatMemory implements ChatMemory {
 
     @Override
     public String toString() {
-        return "SummarizingChatMemory(id=" + id()
-                + ", trigger=" + triggerMessages
+        return "SummarizingChatMemory(trigger=" + triggerMessages
                 + ", keep=" + keepMessages
                 + ", summarized=" + (summary != null)
                 + ", lastSucceeded=" + lastCompactionSucceeded

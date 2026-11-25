@@ -57,7 +57,7 @@ import java.util.*;
  * </pre>
  *
  * <h2>并发与状态</h2>
- * 本类是<b>有状态</b>的：会话记忆（{@link ChatMemory}）绑定在实例上，而 {@link #run} 会读写它。
+ * 本类是<b>有状态</b>的：会话记忆（{@link ChatMemoryView}）绑定在实例上，而 {@link #run} 会读写它。
  * 因此<b>同一个实例不应被多个线程并发调用</b>。需要并发时，请为每个会话创建独立的 Agent 实例，
  * 或由调用方自行加锁。框架内部不创建任何线程，也不做同步。
  * <p>
@@ -75,13 +75,8 @@ public final class ReActAgent implements Agent {
     private final ToolRegistry tools;
 
     /**
-     * 会话记忆。此实例被本 Agent 独占，构成「Agent 有状态」的根源：
+     * 会话记忆视图。此实例被本 Agent 独占，构成「Agent 有状态」的根源：
      * 每轮的用户输入、助手输出、工具结果都会写入这里，下一轮再取回拼进上下文。
-     */
-    private final ChatMemory memory;
-
-    /**
-     * 会话记忆视图
      */
     private final ChatMemoryView memoryView;
 
@@ -138,14 +133,17 @@ public final class ReActAgent implements Agent {
         this.model = Objects.requireNonNull(builder.model, "model 不能为空");
         // 以下三项均为可选，缺省时回退到安全默认值，避免调用方做空判断
         this.tools = builder.tools == null ? new ToolRegistry() : builder.tools;
-        // 记忆统一经锁装饰器访问：未配置锁时回退 MemoryLock.local()（等价于原先的 synchronized），
-        // 需要跨实例互斥时由调用方注入自定义实现。已是 LockedChatMemory 时不重复包裹
-        MemoryLock lock = builder.memoryLock == null ? MemoryLock.local() : builder.memoryLock;
-        this.memory = LockedChatMemory.wrap(
-                builder.memory == null ? new InMemoryChatMemory() : builder.memory, lock);
-        // 会话记忆的视图，包括摘要提示词、工具等。
-        // 未显式配置时退化为「整份记忆」的视图，否则 doRun 首行写用户输入就会 NPE
-        this.memoryView = builder.memoryView;
+        // 记忆统一经 ChatMemoryView 访问：未显式配置时退化为进程内存储 + 默认裁剪器，
+        // 否则 doRun 首行写用户输入就会 NPE。
+        // 锁在这一层注入：DelegateMemoryView 用它保护「落库 + 内存缓冲」的一致性
+        this.memoryView = builder.memoryView != null
+                ? builder.memoryView
+                : new DelegateMemoryView(
+                        new ArrayList<>(),
+                        new DefaultAgentRunScope(builder.sessionId, null, null, null),
+                        new InMemoryMessageStore(),
+                        builder.memoryLock == null ? MemoryLock.local() : builder.memoryLock,
+                        builder.trimmer);
         this.instructions = builder.instructions;
         this.systemPromptOverride = builder.systemPromptOverride;
         // 轮数下限为 1：至少允许一次模型调用，否则 run 会直接空转退出
@@ -175,11 +173,9 @@ public final class ReActAgent implements Agent {
     }
 
     @Override
-    public ChatMemory memory() {
-        return memory;
+    public ChatMemoryView memoryView() {
+        return memoryView;
     }
-
-    public ChatMemoryView memoryView() {return memoryView;}
 
     @Override
     public List<Tool> tools() {
@@ -218,7 +214,7 @@ public final class ReActAgent implements Agent {
     /**
      * 执行一轮完整对话（内部可能包含多次模型调用），并返回本次运行的汇总结果。
      * <p>
-     * 副作用：会向 {@link #memory} 写入用户输入、助手消息与工具结果。因此本方法<b>不是线程安全</b>的。
+     * 副作用：会向 {@link #memoryView} 写入用户输入、助手消息与工具结果。因此本方法<b>不是线程安全</b>的。
      * <p>
      * 本方法在 {@code agent.run} span 内执行；若配置了 {@link Tracer}，监听器回调中可通过
      * {@link Span#current()} 读到本次运行的追踪标识。
@@ -546,7 +542,6 @@ public final class ReActAgent implements Agent {
 
         private ChatModel model;
         private ToolRegistry tools;
-        private ChatMemory memory;
         private MemoryLock memoryLock = MemoryLock.local();
         private String instructions = ReActPrompt.DEFAULT_INSTRUCTIONS;
         private String systemPromptOverride;
@@ -557,7 +552,12 @@ public final class ReActAgent implements Agent {
         private ToolCallMode mode = ToolCallMode.NATIVE_TOOLS;
         private Tracer tracer = Tracer.NOOP;
 
+        /** 未配置 {@link #memoryView} 时，用它作为存储分区键 */
+        private String sessionId;
+        /** 未配置 {@link #memoryView} 时使用的裁剪策略；null 表示默认窗口 */
+        private ContextTrimmer trimmer;
         private ChatMemoryView memoryView;
+
         private Builder() {
         }
 
@@ -572,8 +572,24 @@ public final class ReActAgent implements Agent {
             return this;
         }
 
-        public Builder memory(ChatMemory memory) {
-            this.memory = memory;
+        /**
+         * 会话标识。仅在未通过 {@link #memoryView(ChatMemoryView)} 指定视图时生效，
+         * 用于给默认视图划分存储分区——相同标识的多个 Agent 共享同一份会话历史。
+         * <p>
+         * 缺省为 {@code default}：此时每个 Agent 实例各自持有一份独立视图，
+         * 不与其他实例共享。
+         */
+        public Builder sessionId(String sessionId) {
+            this.sessionId = sessionId;
+            return this;
+        }
+
+        /**
+         * 上下文裁剪策略。仅在未通过 {@link #memoryView(ChatMemoryView)} 指定视图时生效。
+         * 传入 {@code null} 时使用 {@link DefaultContextTrimmer}（默认窗口）。
+         */
+        public Builder trimmer(ContextTrimmer trimmer) {
+            this.trimmer = trimmer;
             return this;
         }
 
@@ -584,8 +600,8 @@ public final class ReActAgent implements Agent {
          * {@link MemoryLock}；否则并发写入可能导致消息丢失或顺序错乱。
          * 传入 {@code null} 时回退为默认本地实现。
          * <p>
-         * 该锁会被 {@link LockedChatMemory} 用于包裹 {@link #memory(ChatMemory)} 配置的记忆；
-         * 若传入的记忆本身已是 {@code LockedChatMemory}，则不再重复包裹。
+         * 该锁由默认视图 {@link DelegateMemoryView} 使用，保护「落库 + 内存缓冲」的一致性；
+         * 若通过 {@link #memoryView(ChatMemoryView)} 指定了视图，锁由视图自身决定。
          */
         public Builder memoryLock(MemoryLock memoryLock) {
             this.memoryLock = memoryLock;
@@ -650,10 +666,16 @@ public final class ReActAgent implements Agent {
             return this;
         }
 
+        /**
+         * 直接指定会话记忆视图，优先级高于 {@link #sessionId(String)} 与 {@link #trimmer(ContextTrimmer)}。
+         * <p>
+         * 传入 {@code null} 时按默认规则构造视图。
+         */
         public Builder memoryView(ChatMemoryView memoryView) {
             this.memoryView = memoryView;
             return this;
         }
+
         public ReActAgent build() {
             return new ReActAgent(this);
         }

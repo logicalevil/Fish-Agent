@@ -156,28 +156,34 @@ Agent agent = FishAgent.builder()
 
 ## 记忆
 
+Agent 通过 `ChatMemoryView` 读写记忆，它是**唯一入口**，只暴露两个读取口：
+
+- `context()`：本次要发给模型的上下文，可经过裁剪或摘要；
+- `history()`：完整历史原文，不受裁剪影响。
+
+默认视图是 `DelegateMemoryView`，把 `MessageStore`（真相源）与内存上下文缓冲合在一起，读写统一由 `MemoryLock` 保护。
+
 ```java
-import com.zheng.fishagent.core.memory.ChatMemory;
-import com.zheng.fishagent.core.memory.FileChatMemory;
-import com.zheng.fishagent.core.memory.InMemoryChatMemory;
-import com.zheng.fishagent.core.memory.MessageWindowChatMemory;
-import com.zheng.fishagent.memory.*;
+import com.zheng.fishagent.core.memory.ChatMemoryView;
+import com.zheng.fishagent.core.memory.DelegateMemoryView;
 
-// 1) 内存记忆（默认）
-ChatMemory memory = new InMemoryChatMemory("session-1");
+// 1) 默认视图：进程内存储 + 滑动窗口裁剪
+ChatMemoryView view = DelegateMemoryView.inMemory("session-1");
 
-        // 2) 滑动窗口：上下文只保留最近 N 条，SYSTEM 消息始终保留
-        ChatMemory windowed = MessageWindowChatMemory.of("session-1", 20);
-
-        // 3) 文件持久化（JSONL，一行一条消息），跨进程恢复
-        ChatMemory file = FileChatMemory.of("session-1");                 // 默认 <工作目录>/.fishagent/sessions
-        ChatMemory file2 = FileChatMemory.of("session-1", Path.of("data")); // 自定义目录
+// 2) 自定义裁剪：只保留最近 10 条（SYSTEM 消息始终保留）
+ChatMemoryView windowed = DelegateMemoryView.inMemory("session-1", new DefaultContextTrimmer(10));
 ```
 
-也可以在门面上直接指定：
+在门面上直接按会话隔离并指定窗口大小：
 
 ```java
-FishAgent.builder().ollama("qwen2.5:7b").session("user-42", 30).build();
+Agent agent = FishAgent.builder()
+        .ollama("qwen2.5:7b")
+        .session("user-42", 30)     // 窗口 30 条
+        .build();
+
+agent.memoryView().history();       // 完整历史
+agent.reset();                      // 等价于 agent.memoryView().clear()
 ```
 
 ### 上下文摘要压缩（SummarizingChatMemory）
@@ -189,7 +195,7 @@ FishAgent.builder().ollama("qwen2.5:7b").session("user-42", 30).build();
 ```java
 import com.zheng.fishagent.core.memory.SummarizingChatMemory;
 
-ChatMemory memory = SummarizingChatMemory.of(
+ChatMemoryView view = SummarizingChatMemory.of(
         MessageWindowChatMemory.of("user-42", 100),   // 底层保存原文
         summarizeModel,                                // 用于生成摘要的模型
         20,                                            // 超过 20 条未摘要消息时触发
@@ -197,7 +203,7 @@ ChatMemory memory = SummarizingChatMemory.of(
 
 Agent agent = FishAgent.builder()
         .ollama("qwen2.5:7b")
-        .memory(memory)
+        .memoryView(view)
         .build();
 ```
 
@@ -213,7 +219,7 @@ Agent agent = FishAgent.builder()
 2. **链式累积**。再次压缩时，上一次的摘要会并入输入，避免二次压缩把早期信息压掉。
 3. **失败退化**。摘要模型抛异常或返回空白时**不会中断对话**，而是退化为「只保留最近 N 条」，即窗口语义。可通过 `lastCompactionSucceeded()` 观察是否发生了降级。
 
-**原文永不丢失**：压缩只改变 `messages()` 的返回结果，全部原始消息可通过 `fullHistory()` 读取。注意**摘要是不可逆的有损操作**——细节会丢失，需要精确回溯时应读取原文。
+**原文永不丢失**：压缩只改变 `messages()` 的返回结果，全部原始消息可通过 `fullHistory()` 读取（视图侧对应 `history()`）。注意**摘要是不可逆的有损操作**——细节会丢失，需要精确回溯时应读取原文。
 
 **参数约束**：`keepMessages` 必须小于 `triggerMessages`，否则会出现「刚压缩完立即又触发」的抖动。构造时会校验并快速失败。
 
@@ -501,8 +507,10 @@ src/main/java/com/zheng/fishagent/
 │   └── ollama/ OllamaChatModel
 ├── tool/       Tool / ToolSpec / FunctionTool / MethodTool / ToolRegistry / ToolSchemaGenerator
 │   └── annotation/ @AgentTool / @ToolParam
-├── memory/     ChatMemory / InMemory / MessageWindow / FileChatMemory / SummarizingChatMemory
-│   │           LockedChatMemory
+├── memory/     ChatMemoryView / DelegateMemoryView / AbstractChatMemoryView
+│   │           MessageStore / InMemoryMessageStore / AgentRunScope
+│   │           ContextTrimmer / DefaultContextTrimmer
+│   │           ChatMemory / InMemory / MessageWindow / FileChatMemory / SummarizingChatMemory
 │   └── lock/   MemoryLock / LocalMemoryLock
 ├── prompt/     ReActPrompt / ReActOutputParser / ReActStep
 ├── agent/      Agent / ReActAgent / ToolCallMode / AgentResult

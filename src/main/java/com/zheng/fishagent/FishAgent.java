@@ -8,8 +8,8 @@ import com.zheng.fishagent.core.agent.ReActAgent;
 import com.zheng.fishagent.core.exception.FishAgentException;
 import com.zheng.fishagent.core.llm.ChatModel;
 import com.zheng.fishagent.core.llm.ollama.OllamaChatModel;
-import com.zheng.fishagent.core.memory.ChatMemory;
-import com.zheng.fishagent.core.memory.MessageWindowChatMemory;
+import com.zheng.fishagent.core.memory.ChatMemoryView;
+import com.zheng.fishagent.core.memory.DefaultContextTrimmer;
 import com.zheng.fishagent.core.lock.MemoryLock;
 import com.zheng.fishagent.core.tool.Tool;
 import com.zheng.fishagent.core.tool.ToolRegistry;
@@ -77,7 +77,9 @@ public final class FishAgent {
         private ChatModel model;
         private String modelName;
         private String baseUrl = OllamaChatModel.DEFAULT_BASE_URL;
-        private ChatMemory memory;
+        private ChatMemoryView memoryView;
+        private String sessionId;
+        private int windowSize = 20;
         private String instructions;
         private String systemPrompt;
         private ToolCallMode mode = ToolCallMode.NATIVE_TOOLS;
@@ -159,15 +161,15 @@ public final class FishAgent {
         }
 
         /**
-         * 使用自定义记忆实现。
+         * 使用自定义记忆视图，优先级高于 {@link #session(String, int)}。
          */
-        public Builder memory(ChatMemory memory) {
-            this.memory = memory;
+        public Builder memoryView(ChatMemoryView memoryView) {
+            this.memoryView = memoryView;
             return this;
         }
 
         /**
-         * 使用带滑动窗口的内存记忆，默认保留最近 20 条消息。
+         * 使用带滑动窗口的记忆视图，默认保留最近 20 条消息。
          *
          * @param sessionId 会话标识，多轮对话以它隔离
          */
@@ -176,13 +178,17 @@ public final class FishAgent {
         }
 
         /**
-         * 使用带滑动窗口的内存记忆。
+         * 使用带滑动窗口的记忆视图。
+         * <p>
+         * 窗口裁剪由 {@link DefaultContextTrimmer} 承担：SYSTEM 消息始终保留，
+         * 其余只取最近 {@code windowSize} 条。
          *
          * @param sessionId   会话标识
          * @param windowSize  参与上下文的最近消息条数（SYSTEM 消息始终保留）
          */
         public Builder session(String sessionId, int windowSize) {
-            this.memory = MessageWindowChatMemory.of(sessionId, windowSize);
+            this.sessionId = sessionId;
+            this.windowSize = windowSize;
             return this;
         }
 
@@ -275,9 +281,11 @@ public final class FishAgent {
                     .maxIterations(maxIterations)
                     .maxRepeatedToolCalls(maxRepeatedToolCalls)
                     .tracer(tracer)
-                    .memoryLock(memoryLock);
-            if (memory != null) {
-                builder.memory(memory);
+                    .memoryLock(memoryLock)
+                    .sessionId(sessionId)
+                    .trimmer(new DefaultContextTrimmer(windowSize));
+            if (memoryView != null) {
+                builder.memoryView(memoryView);
             }
             if (instructions != null) {
                 builder.instructions(instructions);
