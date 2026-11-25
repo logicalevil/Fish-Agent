@@ -41,13 +41,13 @@ public class DelegateMemoryView extends AbstractChatMemoryView{
 
 
     @Override
-    public List<? extends Message> rawContext() {
+    public List< Message> rawContext() {
         return List.copyOf(this.contextMessage);
     }
 
 
     @Override
-    public List<? extends Message> history() {
+    public List< Message> history() {
         List<StoredMessage> load = messageStore.load(agentRunScope, 0, 0);
         List<Message> messages = new ArrayList<>(load.size());
         for (StoredMessage storedMessage : load) {

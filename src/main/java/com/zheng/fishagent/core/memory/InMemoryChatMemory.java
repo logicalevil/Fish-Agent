@@ -25,6 +25,7 @@ public class InMemoryChatMemory implements ChatMemory {
 
     private static final Duration LOCK_TIMEOUT = Duration.ofSeconds(10);
 
+    private final AgentRunScope agentRunScope;
     private final String id;
     private final List<Message> store = new CopyOnWriteArrayList<>();
     private final MemoryLock lock;
@@ -32,21 +33,22 @@ public class InMemoryChatMemory implements ChatMemory {
     /**
      * 以随机生成的会话标识与默认锁创建。
      */
-    public InMemoryChatMemory() {
-        this("session-" + UUID.randomUUID());
+    public InMemoryChatMemory(AgentRunScope agentRunScope) {
+        this("session-" + UUID.randomUUID(), agentRunScope);
     }
 
     /**
      * 以指定会话标识创建；{@code null} 或空白时自动生成随机标识。使用默认锁。
      */
-    public InMemoryChatMemory(String id) {
-        this(id, MemoryLock.local());
+    public InMemoryChatMemory(String id, AgentRunScope agentRunScope) {
+        this(agentRunScope, id, MemoryLock.local());
     }
 
     /**
      * 以指定会话标识与指定锁创建。{@code lock} 为 {@code null} 时回退为默认本地锁。
      */
-    public InMemoryChatMemory(String id, MemoryLock lock) {
+    public InMemoryChatMemory(AgentRunScope agentRunScope, String id, MemoryLock lock) {
+        this.agentRunScope = agentRunScope;
         this.id = id == null || id.isBlank() ? "session-" + UUID.randomUUID() : id;
         this.lock = lock == null ? MemoryLock.local() : lock;
     }
@@ -64,7 +66,7 @@ public class InMemoryChatMemory implements ChatMemory {
         if (message == null) {
             return;
         }
-        lock.execute(id, LOCK_TIMEOUT, () -> {
+        lock.execute(agentRunScope, LOCK_TIMEOUT, () -> {
             store.add(message);
             return null;
         });
@@ -72,12 +74,12 @@ public class InMemoryChatMemory implements ChatMemory {
 
     @Override
     public List<Message> messages() {
-        return lock.execute(id, LOCK_TIMEOUT, () -> new ArrayList<>(store));
+        return lock.execute(agentRunScope, LOCK_TIMEOUT, () -> new ArrayList<>(store));
     }
 
     @Override
     public void clear() {
-        lock.execute(id, LOCK_TIMEOUT, () -> {
+        lock.execute(agentRunScope, LOCK_TIMEOUT, () -> {
             store.clear();
             return null;
         });

@@ -18,7 +18,7 @@ public final class DefaultContextTrimmer implements ContextTrimmer {
     }
 
     @Override
-    public List<? extends Message> trim(List<? extends Message> messages) {
+    public List<Message> trim(List<Message> messages) {
         if (messages == null || messages.isEmpty()) {
             return List.of();
         }
@@ -26,5 +26,6 @@ public final class DefaultContextTrimmer implements ContextTrimmer {
         // 2) 从尾部取 maxMessages 条
         // 3) 起点若为 ToolMessage，向前扩展到配对的 AssistantMessage（可略微超出 N）
         // 4) SYSTEM + 窗口 -> List.copyOf 返回
+        return List.of();
     }
 }

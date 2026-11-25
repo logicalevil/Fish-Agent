@@ -34,10 +34,10 @@ public abstract class AbstractChatMemoryView implements ChatMemoryView {
      * 子类一般无需覆盖；若确需完全自定义（例如摘要），可 override。
      */
     @Override
-    public List<? extends Message> context() {
-        return trimmer.trim(rawContext());
+    public List<Message> context() {
+        return trimmer.trim((List<Message>) rawContext());
     }
 
     /** 子类实现：返回「未经裁剪的上下文」，通常是内存中的消息列表 */
-    protected abstract List<? extends Message> rawContext();
+    protected abstract List<Message> rawContext();
 }
