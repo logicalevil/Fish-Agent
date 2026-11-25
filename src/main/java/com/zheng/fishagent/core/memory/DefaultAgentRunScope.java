@@ -6,6 +6,6 @@ public record DefaultAgentRunScope(String sessionId, Role role, String runId, St
 
     @Override
     public String toKey() {
-        return "";
+        return String.format("%s_%s_%s_%s", userId,sessionId, runId,role);
     }
 }

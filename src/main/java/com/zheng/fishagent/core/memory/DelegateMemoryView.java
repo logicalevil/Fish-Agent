@@ -38,10 +38,7 @@ public class DelegateMemoryView extends AbstractChatMemoryView{
         });
     }
 
-    @Override
-    public List<? extends Message> messages() {
-        return null;
-    }
+
 
     @Override
     public List<? extends Message> rawContext() {

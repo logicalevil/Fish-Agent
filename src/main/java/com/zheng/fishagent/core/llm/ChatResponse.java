@@ -29,7 +29,7 @@ public record ChatResponse(AssistantMessage message, TokenUsage usage, String fi
      * 助手正文；{@code message} 为 {@code null} 时返回空串。
      */
     public String text() {
-        return message == null ? "" : message.content();
+        return message == null ? "" : message.text();
     }
 
 

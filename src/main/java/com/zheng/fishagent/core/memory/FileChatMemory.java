@@ -48,8 +48,8 @@ public final class FileChatMemory implements ChatMemory {
     /**
      * 使用默认目录（{@link #DEFAULT_DIR}）与默认锁创建。
      */
-    public static FileChatMemory of(String sessionId, AgentRunScope agentRunScope) {
-        return of(sessionId, DEFAULT_DIR, agentRunScope);
+    public static FileChatMemory of(AgentRunScope agentRunScope) {
+        return of( DEFAULT_DIR, agentRunScope);
     }
 
     /**
@@ -59,7 +59,7 @@ public final class FileChatMemory implements ChatMemory {
      * @param sessionId 会话标识；{@code null} 或空白时使用 {@code default}
      * @param directory 存储目录，不存在时在首次写入时创建
      */
-    public static FileChatMemory of(String sessionId, Path directory, AgentRunScope agentRunScope) {
+    public static FileChatMemory of( Path directory, AgentRunScope agentRunScope) {
         return of(directory, MemoryLock.local(), agentRunScope);
     }
 

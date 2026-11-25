@@ -51,10 +51,6 @@ public class InMemoryChatMemory implements ChatMemory {
         this.lock = lock == null ? MemoryLock.local() : lock;
     }
 
-    @Override
-    public String id() {
-        return id;
-    }
 
     /**
      * 本实现使用的锁，供诊断与测试观察。

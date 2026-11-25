@@ -7,8 +7,6 @@ import java.util.List;
 public interface ChatMemoryView {
     void add(Message user);
 
-    List<? extends Message> messages();
-
     /** 本次要发给模型的上下文，可经过裁剪或摘要。 */
     List<? extends Message> context();
 

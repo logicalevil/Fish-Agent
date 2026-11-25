@@ -28,11 +28,13 @@ public final class LockedChatMemory implements ChatMemory {
     private final ChatMemory delegate;
     private final MemoryLock lock;
     private final Duration timeout;
+    private final AgentRunScope agentRunScope;
 
-    private LockedChatMemory(ChatMemory delegate, MemoryLock lock, Duration timeout) {
+    private LockedChatMemory(ChatMemory delegate, MemoryLock lock, Duration timeout,AgentRunScope agentRunScope) {
         this.delegate = Objects.requireNonNull(delegate, "delegate 不能为空");
         this.lock = Objects.requireNonNull(lock, "lock 不能为空");
         this.timeout = timeout == null ? DEFAULT_TIMEOUT : timeout;
+        this.agentRunScope = agentRunScope;
     }
 
     /**
@@ -41,8 +43,8 @@ public final class LockedChatMemory implements ChatMemory {
      * @param delegate 被包装的记忆
      * @param lock     互斥实现；跨进程场景传入自行实现的 {@link MemoryLock}
      */
-    public static LockedChatMemory wrap(ChatMemory delegate, MemoryLock lock) {
-        return wrap(delegate, lock, DEFAULT_TIMEOUT);
+    public static LockedChatMemory wrap(ChatMemory delegate, MemoryLock lock,AgentRunScope agentRunScope) {
+        return wrap(delegate, lock, DEFAULT_TIMEOUT,agentRunScope);
     }
 
     /**
@@ -50,11 +52,11 @@ public final class LockedChatMemory implements ChatMemory {
      * <p>
      * 若 {@code delegate} 已经是 {@link LockedChatMemory}，则原样返回，避免嵌套加锁。
      */
-    public static LockedChatMemory wrap(ChatMemory delegate, MemoryLock lock, Duration timeout) {
+    public static LockedChatMemory wrap(ChatMemory delegate, MemoryLock lock, Duration timeout,AgentRunScope agentRunScope) {
         if (delegate instanceof LockedChatMemory locked) {
             return locked;
         }
-        return new LockedChatMemory(delegate, lock, timeout);
+        return new LockedChatMemory(delegate, lock, timeout,agentRunScope);
     }
 
     /**
@@ -71,14 +73,11 @@ public final class LockedChatMemory implements ChatMemory {
         return delegate;
     }
 
-    @Override
-    public String id() {
-        return delegate.id();
-    }
+
 
     @Override
     public void add(Message message) {
-        lock.execute(id(), timeout, () -> {
+        lock.execute(agentRunScope, timeout, () -> {
             delegate.add(message);
             return null;
         });
@@ -86,12 +85,12 @@ public final class LockedChatMemory implements ChatMemory {
 
     @Override
     public List<Message> messages() {
-        return lock.execute(id(), timeout, delegate::messages);
+        return lock.execute(agentRunScope, timeout, delegate::messages);
     }
 
     @Override
     public void clear() {
-        lock.execute(id(), timeout, () -> {
+        lock.execute(agentRunScope, timeout, () -> {
             delegate.clear();
             return null;
         });
@@ -99,9 +98,11 @@ public final class LockedChatMemory implements ChatMemory {
 
     @Override
     public String toString() {
-        return "LockedChatMemory(id=" + id()
-                + ", lock=" + lock.getClass().getSimpleName()
-                + ", isDistributed=" + lock.isDistributed()
-                + ", delegate=" + delegate.getClass().getSimpleName() + ")";
+        return "LockedChatMemory{" +
+                "delegate=" + delegate +
+                ", lock=" + lock +
+                ", timeout=" + timeout +
+                ", agentRunScope=" + agentRunScope +
+                '}';
     }
 }
