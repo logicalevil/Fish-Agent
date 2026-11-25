@@ -25,11 +25,6 @@ import java.util.List;
 public interface ChatMemory {
 
     /**
-     * 会话标识，可理解为多轮对话的 session id。
-     */
-    String id();
-
-    /**
      * 追加一条消息。{@code null} 通常被忽略（具体实现可自行决定）。
      */
     void add(Message message);

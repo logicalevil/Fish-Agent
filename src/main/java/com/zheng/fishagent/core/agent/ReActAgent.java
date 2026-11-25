@@ -8,17 +8,13 @@ import com.zheng.fishagent.core.llm.ChatRequest;
 import com.zheng.fishagent.core.llm.ChatResponse;
 import com.zheng.fishagent.core.listener.StreamListener;
 import com.zheng.fishagent.core.llm.TokenUsage;
-import com.zheng.fishagent.core.memory.ChatMemory;
-import com.zheng.fishagent.core.memory.ChatMemoryView;
-import com.zheng.fishagent.core.memory.InMemoryChatMemory;
-import com.zheng.fishagent.core.memory.LockedChatMemory;
+import com.zheng.fishagent.core.memory.*;
 import com.zheng.fishagent.core.lock.MemoryLock;
 import com.zheng.fishagent.core.message.content.TextContent;
 import com.zheng.fishagent.core.message.message.*;
 import com.zheng.fishagent.core.trace.Span;
 import com.zheng.fishagent.core.trace.Spans;
 import com.zheng.fishagent.core.trace.Tracer;
-import com.zheng.fishagent.message.message.*;
 import com.zheng.fishagent.core.message.ToolCall;
 import com.zheng.fishagent.core.prompt.FinalAnswer;
 import com.zheng.fishagent.core.prompt.ReActOutputParser;
@@ -149,9 +145,7 @@ public final class ReActAgent implements Agent {
                 builder.memory == null ? new InMemoryChatMemory() : builder.memory, lock);
         // 会话记忆的视图，包括摘要提示词、工具等。
         // 未显式配置时退化为「整份记忆」的视图，否则 doRun 首行写用户输入就会 NPE
-        this.memoryView = builder.memoryView != null
-                ? builder.memoryView
-                : new DelegateMemoryView(this.memory);
+        this.memoryView = builder.memoryView;
         this.instructions = builder.instructions;
         this.systemPromptOverride = builder.systemPromptOverride;
         // 轮数下限为 1：至少允许一次模型调用，否则 run 会直接空转退出
@@ -403,7 +397,7 @@ public final class ReActAgent implements Agent {
     private ChatRequest buildRequest() {
         List<Message> context = new ArrayList<>();
         context.add(new SystemMessage(List.of(new TextContent(systemPrompt()))));
-        context.addAll(memoryView.messages());
+        context.addAll(memoryView.context());
 
         return ChatRequest.builder()
                 .messages(context)
@@ -455,7 +449,7 @@ public final class ReActAgent implements Agent {
                                TokenUsage usage, String stopReason, boolean success) {
         // AgentResult 内部会对 messages 做 List.copyOf，得到不可变快照，
         // 因此返回值不会随后续 run 修改记忆而发生变化
-        AgentResult result = new AgentResult(text, List.copyOf(memoryView.messages()),
+        AgentResult result = new AgentResult(text, List.copyOf(memoryView.context()),
                 iterations, usage, stopReason, success);
         callback.onFinish(result);
         return result;
@@ -491,7 +485,7 @@ public final class ReActAgent implements Agent {
      * 并非合格的答案。因此只作为最后手段，并配合 {@code success = false} 让调用方自行判断。
      */
     private String fallbackText() {
-        List<? extends Message> messages = memoryView.messages();
+        List<? extends Message> messages = memoryView.history();
         for (int i = messages.size() - 1; i >= 0; i--) {
             Message message = messages.get(i);
             if (message  instanceof AssistantMessage) {
@@ -537,24 +531,7 @@ public final class ReActAgent implements Agent {
         return callback::onToken;
     }
 
-    /**
-     * 把 {@link ChatMemory} 适配为 {@link ChatMemoryView}。
-     * <p>
-     * 用于「只配置了 memory、未配置 memoryView」的场景：此时视图等价于整份记忆，
-     * 不做窗口裁剪也不做摘要压缩。
-     */
-    private record DelegateMemoryView(ChatMemory memory) implements ChatMemoryView {
 
-        @Override
-        public void add(Message message) {
-            memory.add(message);
-        }
-
-        @Override
-        public List<? extends Message> messages() {
-            return memory.messages();
-        }
-    }
 
     // ------------------------------------------------------------------ Builder
 

@@ -1,5 +1,6 @@
 package com.zheng.fishagent.memory;
 
+import com.zheng.fishagent.core.memory.AgentRunScope;
 import com.zheng.fishagent.core.memory.ChatMemory;
 import com.zheng.fishagent.core.memory.FileChatMemory;
 import com.zheng.fishagent.core.memory.InMemoryChatMemory;
@@ -21,6 +22,10 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LockedChatMemoryTest {
+
+    private static AgentRunScope scope(String sessionId) {
+        return () -> sessionId;
+    }
 
     @Test
     void 标识应透传底层() {
@@ -111,12 +116,12 @@ class LockedChatMemoryTest {
 
     @Test
     void 包装文件记忆应仍能持久化(@TempDir Path tempDir) {
-        FileChatMemory file = FileChatMemory.of("s1", tempDir);
+        FileChatMemory file = FileChatMemory.of("s1", tempDir, scope("s1"));
         LockedChatMemory memory = LockedChatMemory.wrap(file, MemoryLock.local());
 
         memory.add(Message.user("持久化"));
 
-        FileChatMemory reloaded = FileChatMemory.of("s1", tempDir);
+        FileChatMemory reloaded = FileChatMemory.of("s1", tempDir, scope("s1"));
         assertEquals(1, reloaded.size());
         assertEquals("持久化", reloaded.messages().getFirst().content());
     }
@@ -133,9 +138,9 @@ class LockedChatMemoryTest {
         }
 
         @Override
-        public <T> T execute(String resource, Duration timeout, Supplier<T> action) {
+        public <T> T execute(AgentRunScope agentRunScope, Duration timeout, Supplier<T> action) {
             calls.incrementAndGet();
-            resources.add(resource);
+            resources.add(agentRunScope.toKey());
             return action.get();
         }
     }

@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
  * <p>
  * 一个实例对应一次模型调用，不可跨轮复用。
  */
-final class FinalAnswerGate implements StreamListener {
+public final class FinalAnswerGate implements StreamListener {
 
     /** 匹配 "Final Answer:" 标签（容忍前导空格/引用符/列表符，以及加粗与中英文冒号）。 */
     private static final Pattern FINAL_LABEL = Pattern.compile(
@@ -29,7 +29,7 @@ final class FinalAnswerGate implements StreamListener {
     /** 已推送到下游的位置；-1 表示尚未发现 Final Answer 标记。 */
     private int emittedUpTo = -1;
 
-    FinalAnswerGate(AgentListener callback) {
+    public FinalAnswerGate(AgentListener callback) {
         this.callback = callback;
     }
 

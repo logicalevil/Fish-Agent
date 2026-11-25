@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -30,25 +31,25 @@ public final class FileChatMemory implements ChatMemory {
     public static final Path DEFAULT_DIR = Path.of(".fishagent", "sessions");
 
     /** 默认的锁等待时间。 */
-    private static final java.time.Duration LOCK_TIMEOUT = java.time.Duration.ofSeconds(10);
+    private static final Duration LOCK_TIMEOUT = Duration.ofSeconds(10);
 
-    private final String id;
+    private final AgentRunScope agentRunScope;
     private final Path file;
     private final MemoryLock lock;
     private final List<Message> cache = new ArrayList<>();
 
-    private FileChatMemory(String id, Path file, MemoryLock lock) {
-        this.id = id;
+    private FileChatMemory(Path file, MemoryLock lock,AgentRunScope agentRunScope) {
         this.file = file;
         this.lock = Objects.requireNonNull(lock, "lock 不能为空");
         load();
+        this.agentRunScope = agentRunScope;
     }
 
     /**
      * 使用默认目录（{@link #DEFAULT_DIR}）与默认锁创建。
      */
-    public static FileChatMemory of(String sessionId) {
-        return of(sessionId, DEFAULT_DIR);
+    public static FileChatMemory of(String sessionId, AgentRunScope agentRunScope) {
+        return of(sessionId, DEFAULT_DIR, agentRunScope);
     }
 
     /**
@@ -58,8 +59,8 @@ public final class FileChatMemory implements ChatMemory {
      * @param sessionId 会话标识；{@code null} 或空白时使用 {@code default}
      * @param directory 存储目录，不存在时在首次写入时创建
      */
-    public static FileChatMemory of(String sessionId, Path directory) {
-        return of(sessionId, directory, MemoryLock.local());
+    public static FileChatMemory of(String sessionId, Path directory, AgentRunScope agentRunScope) {
+        return of(directory, MemoryLock.local(), agentRunScope);
     }
 
     /**
@@ -72,9 +73,9 @@ public final class FileChatMemory implements ChatMemory {
      * @param directory 存储目录
      * @param lock      互斥实现；{@code null} 时回退为默认本地锁
      */
-    public static FileChatMemory of(String sessionId, Path directory, MemoryLock lock) {
-        String safeId = sessionId == null || sessionId.isBlank() ? "default" : sessionId.replaceAll("[^a-zA-Z0-9_.\\-]", "_");
-        return new FileChatMemory(safeId, directory.resolve(safeId + ".jsonl"), lock);
+    public static FileChatMemory of(Path directory, MemoryLock lock,AgentRunScope agentRunScope) {
+
+        return new FileChatMemory( directory.resolve(agentRunScope.toKey() + ".jsonl"), lock,agentRunScope);
     }
 
     /**
@@ -108,17 +109,13 @@ public final class FileChatMemory implements ChatMemory {
         }
     }
 
-    @Override
-    public String id() {
-        return id;
-    }
 
     @Override
     public void add(Message message) {
         if (message == null) {
             return;
         }
-        lock.execute(id, LOCK_TIMEOUT, () -> {
+        lock.execute(agentRunScope, LOCK_TIMEOUT, () -> {
             cache.add(message);
             try {
                 Files.createDirectories(file.getParent());
@@ -136,7 +133,7 @@ public final class FileChatMemory implements ChatMemory {
 
     @Override
     public List<Message> messages() {
-        return lock.execute(id, LOCK_TIMEOUT, () -> new ArrayList<>(cache));
+        return lock.execute(agentRunScope, LOCK_TIMEOUT, () -> new ArrayList<>(cache));
     }
 
     /**
@@ -144,7 +141,7 @@ public final class FileChatMemory implements ChatMemory {
      */
     @Override
     public void clear() {
-        lock.execute(id, LOCK_TIMEOUT, () -> {
+        lock.execute(agentRunScope, LOCK_TIMEOUT, () -> {
             cache.clear();
             try {
                 Files.deleteIfExists(file);

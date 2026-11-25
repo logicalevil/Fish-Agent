@@ -13,7 +13,7 @@ import java.util.Deque;
  * 跑在调用方的同一个线程上，因此回调里读到的「当前 span」必然是本次 run 的。
  * 栈在为空时会被 {@link ThreadLocal#remove()} 清理，避免线程池复用时串味。
  */
-final class Spans {
+public final class Spans {
 
     private static final ThreadLocal<Deque<Span>> STACK = new ThreadLocal<>();
 
@@ -31,7 +31,7 @@ final class Spans {
      * <p>
      * 未启用追踪（{@link Tracer#NOOP}）时返回 {@link Span#NOOP} 且<b>不压栈</b>，保证零开销。
      */
-    static Span open(Tracer tracer, String name) {
+    public static Span open(Tracer tracer, String name) {
         Span span = tracer.start(name, current());
         if (span == null || span == Span.NOOP) {
             return Span.NOOP;
@@ -50,7 +50,7 @@ final class Spans {
      * <p>
      * 必须与 {@link #open} 成对出现，通常写在 {@code finally} 里。
      */
-    static void close(Span span) {
+    public static void close(Span span) {
         if (span == null || span == Span.NOOP) {
             return;
         }

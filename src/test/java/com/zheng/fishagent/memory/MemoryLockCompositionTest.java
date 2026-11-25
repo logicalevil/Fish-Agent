@@ -1,5 +1,6 @@
 package com.zheng.fishagent.memory;
 
+import com.zheng.fishagent.core.memory.AgentRunScope;
 import com.zheng.fishagent.core.memory.ChatMemory;
 import com.zheng.fishagent.core.memory.FileChatMemory;
 import com.zheng.fishagent.core.memory.LockedChatMemory;
@@ -23,9 +24,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MemoryLockCompositionTest {
 
+    private static AgentRunScope scope(String sessionId) {
+        return () -> sessionId;
+    }
+
     @Test
     void 锁在窗口外层时应同时生效(@TempDir Path tempDir) {
-        FileChatMemory file = FileChatMemory.of("c1", tempDir);
+        FileChatMemory file = FileChatMemory.of("c1", tempDir, scope("c1"));
         ChatMemory memory = LockedChatMemory.wrap(
                 MessageWindowChatMemory.windowing(file, 3), MemoryLock.local());
 
@@ -41,7 +46,7 @@ class MemoryLockCompositionTest {
 
     @Test
     void 窗口在锁外层时应同时生效(@TempDir Path tempDir) {
-        FileChatMemory file = FileChatMemory.of("c2", tempDir);
+        FileChatMemory file = FileChatMemory.of("c2", tempDir, scope("c2"));
         ChatMemory memory = MessageWindowChatMemory.windowing(
                 LockedChatMemory.wrap(file, MemoryLock.local()), 3);
 
@@ -57,11 +62,11 @@ class MemoryLockCompositionTest {
 
     @Test
     void 两种嵌套顺序结果应一致(@TempDir Path tempDir) {
-        FileChatMemory fileA = FileChatMemory.of("a", tempDir);
+        FileChatMemory fileA = FileChatMemory.of("a", tempDir, scope("a"));
         ChatMemory outerLock = LockedChatMemory.wrap(
                 MessageWindowChatMemory.windowing(fileA, 3), new CountingMemoryLock());
 
-        FileChatMemory fileB = FileChatMemory.of("b", tempDir);
+        FileChatMemory fileB = FileChatMemory.of("b", tempDir, scope("b"));
         ChatMemory outerWindow = MessageWindowChatMemory.windowing(
                 LockedChatMemory.wrap(fileB, new CountingMemoryLock()), 3);
 
@@ -79,7 +84,7 @@ class MemoryLockCompositionTest {
     @Test
     void 未配置锁时并发写入应被串行化(@TempDir Path tempDir) throws Exception {
         // 默认构造回退 MemoryLock.local()
-        FileChatMemory memory = FileChatMemory.of("concurrent", tempDir);
+        FileChatMemory memory = FileChatMemory.of("concurrent", tempDir, scope("concurrent"));
         int threads = 8;
         int perThread = 20;
 
@@ -120,7 +125,7 @@ class MemoryLockCompositionTest {
         }
 
         @Override
-        public <T> T execute(String resource, Duration timeout, Supplier<T> action) {
+        public <T> T execute(AgentRunScope agentRunScope, Duration timeout, Supplier<T> action) {
             calls.incrementAndGet();
             return action.get();
         }

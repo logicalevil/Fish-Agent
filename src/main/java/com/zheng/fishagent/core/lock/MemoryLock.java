@@ -1,6 +1,7 @@
 package com.zheng.fishagent.core.lock;
 
 import com.zheng.fishagent.core.exception.FishAgentException;
+import com.zheng.fishagent.core.memory.AgentRunScope;
 import com.zheng.fishagent.core.memory.ChatMemory;
 
 import java.time.Duration;
@@ -48,7 +49,7 @@ public interface MemoryLock {
      * @return 动作的执行结果
      * @throws FishAgentException 获取锁失败或超时；此时动作不会被执行
      */
-    <T> T execute(String resource, Duration timeout, Supplier<T> action);
+    <T> T execute(AgentRunScope agentRunScope, Duration timeout, Supplier<T> action);
 
     /**
      * 默认实现：按资源标识维护 {@link java.util.concurrent.locks.ReentrantLock}，

@@ -1,6 +1,8 @@
 package com.zheng.fishagent.core.lock;
 
 import com.zheng.fishagent.core.exception.FishAgentException;
+import com.zheng.fishagent.core.memory.AgentRunScope;
+import com.zheng.fishagent.core.util.StringUtil;
 
 import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
@@ -27,13 +29,12 @@ final class LocalMemoryLock implements MemoryLock {
     }
 
     @Override
-    public <T> T execute(String resource, Duration timeout, Supplier<T> action) {
+    public <T> T execute(AgentRunScope agentRunScope, Duration timeout, Supplier<T> action) {
         if (action == null) {
             throw new FishAgentException("记忆锁动作不能为空");
         }
-        String key = resource == null ? "" : resource;
+        String key = StringUtil.isBlank(agentRunScope.toKey()) ? "" : agentRunScope.toKey();
         ReentrantLock lock = locks.computeIfAbsent(key, k -> new ReentrantLock());
-
         boolean acquired;
         try {
             acquired = lock.tryLock(Math.max(0L, timeoutOf(timeout)), java.util.concurrent.TimeUnit.MILLISECONDS);

@@ -295,14 +295,14 @@ class SummarizingChatMemoryTest {
 
     @Test
     void 包装文件记忆时消息应正常落盘(@TempDir Path tempDir) {
-        FileChatMemory file = FileChatMemory.of("s1", tempDir);
+        FileChatMemory file = FileChatMemory.of("s1", tempDir, () -> "s1");
         SummarizingChatMemory memory = SummarizingChatMemory.of(file, new FakeChatModel().thenText("S1"), 3, 1);
 
         for (int i = 0; i < 4; i++) {
             memory.add(Message.user("m" + i));
         }
 
-        assertEquals(4, FileChatMemory.of("s1", tempDir).size(), "消息应已落盘");
+        assertEquals(4, FileChatMemory.of("s1", tempDir, () -> "s1").size(), "消息应已落盘");
     }
 
     @Test
@@ -330,7 +330,7 @@ class SummarizingChatMemoryTest {
     void 底层不做窗口裁剪时摘要才可能看到全部原文(@TempDir Path tempDir) {
         // 并列结构：摘要直接建立在落盘记忆上，原文与上下文互不干扰
         FakeChatModel model = new FakeChatModel().thenText("S1");
-        FileChatMemory file = FileChatMemory.of("s1", tempDir);
+        FileChatMemory file = FileChatMemory.of("s1", tempDir, () -> "s1");
         SummarizingChatMemory memory = SummarizingChatMemory.of(file, model, 5, 2);
 
         for (int i = 0; i < 6; i++) {
@@ -338,7 +338,7 @@ class SummarizingChatMemoryTest {
         }
 
         assertEquals(6, memory.fullHistory().size(), "落盘原文应完整");
-        assertEquals(6, FileChatMemory.of("s1", tempDir).size(), "重新打开后仍应读到全部原文");
+        assertEquals(6, FileChatMemory.of("s1", tempDir, () -> "s1").size(), "重新打开后仍应读到全部原文");
         String prompt = model.requests().getFirst().messages().getFirst().content();
         assertTrue(prompt.contains("m0"), "早期消息应进入摘要输入");
         assertTrue(prompt.contains("m3"));
