@@ -1,11 +1,12 @@
 package com.zheng.fishagent.agent;
 
-import com.zheng.fishagent.llm.ChatModel;
-import com.zheng.fishagent.llm.ChatRequest;
-import com.zheng.fishagent.llm.ChatResponse;
-import com.zheng.fishagent.llm.StreamListener;
-import com.zheng.fishagent.llm.TokenUsage;
-import com.zheng.fishagent.message.Message;
+import com.zheng.fishagent.core.llm.ChatModel;
+import com.zheng.fishagent.core.llm.ChatRequest;
+import com.zheng.fishagent.core.llm.ChatResponse;
+import com.zheng.fishagent.core.listener.StreamListener;
+import com.zheng.fishagent.core.llm.TokenUsage;
+import com.zheng.fishagent.core.message.message.Message;
+import com.zheng.fishagent.testkit.Messages;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -35,7 +36,7 @@ public final class FakeChatModel implements ChatModel {
     }
 
     public FakeChatModel thenText(String content) {
-        return then(new ChatResponse(Message.assistant(content), new TokenUsage(1, 1), "stop"));
+        return then(new ChatResponse(Messages.assistant(content), new TokenUsage(1, 1), "stop"));
     }
 
     public List<ChatRequest> requests() {
@@ -59,11 +60,22 @@ public final class FakeChatModel implements ChatModel {
     @Override
     public ChatResponse stream(ChatRequest request, StreamListener listener) {
         ChatResponse response = call(request);
-        String content = response.message().content();
+        String content = textOf(response.message());
         for (int i = 0; i < content.length(); i += chunkSize) {
             listener.onToken(content.substring(i, Math.min(content.length(), i + chunkSize)));
         }
         return response;
+    }
+
+    /** 消息正文的纯文本，用于按 chunk 切分模拟流式。 */
+    private static String textOf(Message message) {
+        StringBuilder sb = new StringBuilder();
+        message.contentList().forEach(content -> {
+            if (content != null && content.text() != null) {
+                sb.append(content.text());
+            }
+        });
+        return sb.toString();
     }
 
     @Override

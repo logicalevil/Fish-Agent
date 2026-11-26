@@ -1,5 +1,6 @@
 package com.zheng.fishagent.prompt;
 
+import com.zheng.fishagent.core.prompt.*;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -17,7 +18,7 @@ class ReActOutputParserTest {
 
         ReActStep step = ReActOutputParser.parse(text);
 
-        ReActStep.FinalAnswer answer = assertInstanceOf(ReActStep.FinalAnswer.class, step);
+        FinalAnswer answer = assertInstanceOf(FinalAnswer.class, step);
         assertEquals("北京现在是 15:00。", answer.text());
         assertEquals("我已经知道最终答案", answer.thought());
     }
@@ -31,7 +32,7 @@ class ReActOutputParserTest {
 
         ReActStep step = ReActOutputParser.parse(text);
 
-        ReActStep.ToolRequest request = assertInstanceOf(ReActStep.ToolRequest.class, step);
+        ToolRequest request = assertInstanceOf(ToolRequest.class, step);
         assertEquals("currentTime", request.tool());
         assertEquals(Map.of("city", "北京"), request.arguments());
         assertEquals("需要查询北京当前时间", request.thought());
@@ -46,7 +47,7 @@ class ReActOutputParserTest {
 
         ReActStep step = ReActOutputParser.parse(text);
 
-        ReActStep.ToolRequest request = assertInstanceOf(ReActStep.ToolRequest.class, step);
+        ToolRequest request = assertInstanceOf(ToolRequest.class, step);
         assertEquals("calculate", request.tool());
         assertEquals(Map.of("input", "1+1"), request.arguments());
     }
@@ -61,7 +62,7 @@ class ReActOutputParserTest {
 
         ReActStep step = ReActOutputParser.parse(text);
 
-        assertInstanceOf(ReActStep.ToolRequest.class, step);
+        assertInstanceOf(ToolRequest.class, step);
     }
 
     @Test
@@ -80,7 +81,7 @@ class ReActOutputParserTest {
     void 不符合格式的输出应原样返回() {
         ReActStep step = ReActOutputParser.parse("北京今天多云。");
 
-        ReActStep.Unparsed unparsed = assertInstanceOf(ReActStep.Unparsed.class, step);
+        Unparsed unparsed = assertInstanceOf(Unparsed.class, step);
         assertEquals("北京今天多云。", unparsed.raw());
     }
 }

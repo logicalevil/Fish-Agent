@@ -35,5 +35,11 @@ build/
 ### VS Code ###
 .vscode/
 
+### 工具本地数据（非项目内容）###
+.proxyai/
+
 ### Mac OS ###
 .DS_Store
+
+### 构建时生成的临时目录（IDE / 脚本产物，不含源码）###
+gen/

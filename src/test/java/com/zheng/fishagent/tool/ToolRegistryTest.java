@@ -1,8 +1,11 @@
 package com.zheng.fishagent.tool;
 
-import com.zheng.fishagent.message.ToolCall;
-import com.zheng.fishagent.tool.annotation.AgentTool;
-import com.zheng.fishagent.tool.annotation.ToolParam;
+import com.zheng.fishagent.core.message.ToolCall;
+import com.zheng.fishagent.example.tool.FunctionTool;
+import com.zheng.fishagent.core.tool.Tool;
+import com.zheng.fishagent.core.tool.ToolRegistry;
+import com.zheng.fishagent.core.tool.annotation.AgentTool;
+import com.zheng.fishagent.core.tool.annotation.ToolParam;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

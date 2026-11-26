@@ -1,15 +1,18 @@
 package com.zheng.fishagent;
 
-import com.zheng.fishagent.agent.Agent;
-import com.zheng.fishagent.agent.ToolCallMode;
-import com.zheng.fishagent.agent.ReActAgent;
-import com.zheng.fishagent.core.FishAgentException;
-import com.zheng.fishagent.llm.ChatModel;
-import com.zheng.fishagent.llm.ollama.OllamaChatModel;
-import com.zheng.fishagent.memory.ChatMemory;
-import com.zheng.fishagent.memory.MessageWindowChatMemory;
-import com.zheng.fishagent.tool.Tool;
-import com.zheng.fishagent.tool.ToolRegistry;
+import com.zheng.fishagent.core.agent.Agent;
+import com.zheng.fishagent.core.trace.Span;
+import com.zheng.fishagent.core.constant.ToolCallMode;
+import com.zheng.fishagent.core.trace.Tracer;
+import com.zheng.fishagent.core.agent.ReActAgent;
+import com.zheng.fishagent.core.exception.FishAgentException;
+import com.zheng.fishagent.core.llm.ChatModel;
+import com.zheng.fishagent.core.llm.ollama.OllamaChatModel;
+import com.zheng.fishagent.core.memory.ChatMemoryView;
+import com.zheng.fishagent.core.memory.DefaultContextTrimmer;
+import com.zheng.fishagent.core.lock.MemoryLock;
+import com.zheng.fishagent.core.tool.Tool;
+import com.zheng.fishagent.core.tool.ToolRegistry;
 
 import java.util.Objects;
 
@@ -74,7 +77,9 @@ public final class FishAgent {
         private ChatModel model;
         private String modelName;
         private String baseUrl = OllamaChatModel.DEFAULT_BASE_URL;
-        private ChatMemory memory;
+        private ChatMemoryView memoryView;
+        private String sessionId;
+        private int windowSize = 20;
         private String instructions;
         private String systemPrompt;
         private ToolCallMode mode = ToolCallMode.NATIVE_TOOLS;
@@ -82,6 +87,8 @@ public final class FishAgent {
         private int maxIterations = 8;
         private int maxRepeatedToolCalls = 3;
         private Double temperature;
+        private Tracer tracer = Tracer.NOOP;
+        private MemoryLock memoryLock = MemoryLock.local();
 
         private Builder() {
         }
@@ -154,15 +161,15 @@ public final class FishAgent {
         }
 
         /**
-         * 使用自定义记忆实现。
+         * 使用自定义记忆视图，优先级高于 {@link #session(String, int)}。
          */
-        public Builder memory(ChatMemory memory) {
-            this.memory = memory;
+        public Builder memoryView(ChatMemoryView memoryView) {
+            this.memoryView = memoryView;
             return this;
         }
 
         /**
-         * 使用带滑动窗口的内存记忆，默认保留最近 20 条消息。
+         * 使用带滑动窗口的记忆视图，默认保留最近 20 条消息。
          *
          * @param sessionId 会话标识，多轮对话以它隔离
          */
@@ -171,13 +178,17 @@ public final class FishAgent {
         }
 
         /**
-         * 使用带滑动窗口的内存记忆。
+         * 使用带滑动窗口的记忆视图。
+         * <p>
+         * 窗口裁剪由 {@link DefaultContextTrimmer} 承担：SYSTEM 消息始终保留，
+         * 其余只取最近 {@code windowSize} 条。
          *
          * @param sessionId   会话标识
          * @param windowSize  参与上下文的最近消息条数（SYSTEM 消息始终保留）
          */
         public Builder session(String sessionId, int windowSize) {
-            this.memory = MessageWindowChatMemory.of(sessionId, windowSize);
+            this.sessionId = sessionId;
+            this.windowSize = windowSize;
             return this;
         }
 
@@ -230,6 +241,33 @@ public final class FishAgent {
         }
 
         /**
+         * 链路追踪扩展点。缺省为 {@link Tracer#NOOP}（不追踪、零开销）。
+         * <p>
+         * 设置后，run、模型调用与工具执行会自动生成 span，监听器可用
+         * {@link Span#current()} 读取当前 traceId。
+         * 内置的 {@code SimpleTracer}（{@code com.zheng.fishagent.agent} 包）
+         * 提供基于 UUID 的轻量实现，可直接使用。
+         */
+        public Builder tracer(Tracer tracer) {
+            this.tracer = tracer;
+            return this;
+        }
+
+        /**
+         * 记忆的互斥实现。缺省为 {@link MemoryLock#local()}，仅在当前 JVM 内提供互斥。
+         * <p>
+         * 当同一份记忆会被<b>多个实例</b>并发访问时（例如多副本部署 + 共享会话），
+         * 需注入自行实现的跨进程 {@link MemoryLock}。框架不提供跨进程实现，也不依赖
+         * 任何分布式组件——由使用者按自己的基础设施选择。
+         * <p>
+         * 传入 {@code null} 时回退为默认本地实现。
+         */
+        public Builder memoryLock(MemoryLock memoryLock) {
+            this.memoryLock = memoryLock;
+            return this;
+        }
+
+        /**
          * 组装并返回 Agent。
          *
          * @throws FishAgentException 未指定任何模型时抛出
@@ -241,9 +279,13 @@ public final class FishAgent {
                     .mode(mode)
                     .streaming(streaming)
                     .maxIterations(maxIterations)
-                    .maxRepeatedToolCalls(maxRepeatedToolCalls);
-            if (memory != null) {
-                builder.memory(memory);
+                    .maxRepeatedToolCalls(maxRepeatedToolCalls)
+                    .tracer(tracer)
+                    .memoryLock(memoryLock)
+                    .sessionId(sessionId)
+                    .trimmer(new DefaultContextTrimmer(windowSize));
+            if (memoryView != null) {
+                builder.memoryView(memoryView);
             }
             if (instructions != null) {
                 builder.instructions(instructions);

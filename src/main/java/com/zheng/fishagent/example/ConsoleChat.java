@@ -1,15 +1,15 @@
 package com.zheng.fishagent.example;
 
 import com.zheng.fishagent.FishAgent;
-import com.zheng.fishagent.agent.Agent;
-import com.zheng.fishagent.agent.AgentListener;
-import com.zheng.fishagent.agent.ToolCallMode;
-import com.zheng.fishagent.agent.AgentResult;
-import com.zheng.fishagent.llm.ollama.OllamaChatModel;
-import com.zheng.fishagent.message.ToolCall;
-import com.zheng.fishagent.tool.FunctionTool;
-import com.zheng.fishagent.tool.ToolRegistry;
-import com.zheng.fishagent.util.Json;
+import com.zheng.fishagent.core.agent.Agent;
+import com.zheng.fishagent.core.listener.AgentListener;
+import com.zheng.fishagent.core.constant.ToolCallMode;
+import com.zheng.fishagent.core.agent.AgentResult;
+import com.zheng.fishagent.core.llm.ollama.OllamaChatModel;
+import com.zheng.fishagent.core.message.ToolCall;
+import com.zheng.fishagent.example.tool.FunctionTool;
+import com.zheng.fishagent.core.tool.ToolRegistry;
+import com.zheng.fishagent.core.util.Json;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -104,8 +104,8 @@ public final class ConsoleChat {
                         continue;
                     }
                     case "/history" -> {
-                        agent.memory().messages().forEach(m ->
-                                System.out.println("  [" + m.role().value() + "] " + preview(m.content())));
+                        agent.memoryView().history().forEach(m ->
+                                System.out.println("  [" + m.role().value() + "] " + preview(m.allMessage())));
                         continue;
                     }
                     case "/help" -> {
